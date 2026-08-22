@@ -60,11 +60,11 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "Telegram FZ-LLC"
-            VALUE "FileDescription", "Telegram Desktop"
+            VALUE "CompanyName", "bonaqu"
+            VALUE "FileDescription", "Bonaqu Desktop"
             VALUE "FileVersion", "7.1.1.0"
-            VALUE "LegalCopyright", "Copyright (C) 2014-2026"
-            VALUE "ProductName", "Telegram Desktop"
+            VALUE "LegalCopyright", "Derived from Telegram Desktop (C) 2014-2026"
+            VALUE "ProductName", "Bonaqu Desktop"
             VALUE "ProductVersion", "7.1.1.0"
         END
     END
