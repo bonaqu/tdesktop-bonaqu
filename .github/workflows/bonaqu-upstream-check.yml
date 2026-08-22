@@ -1,0 +1,44 @@
+name: Bonaqu Upstream Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 8 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-drift:
+    name: Check Telegram Desktop dev baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Bonaqu Desktop
+        uses: actions/checkout@v7
+
+      - name: Compare recorded baseline with upstream dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="$(tr -d '\r\n ' < .bonaqu/upstream-base.txt)"
+          UPSTREAM="$(git ls-remote https://github.com/telegramdesktop/tdesktop.git refs/heads/dev | awk '{print $1}')"
+
+          if [ -z "$BASE" ] || [ -z "$UPSTREAM" ]; then
+            echo "Could not resolve the recorded or upstream commit." >&2
+            exit 1
+          fi
+
+          {
+            echo "## Bonaqu Desktop upstream check"
+            echo
+            echo "Recorded baseline: \`$BASE\`"
+            echo "Telegram Desktop dev: \`$UPSTREAM\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$BASE" = "$UPSTREAM" ]; then
+            echo "Bonaqu Desktop is based on the current Telegram Desktop dev head." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Telegram Desktop upstream changed::Recorded Bonaqu baseline is $BASE, current upstream dev is $UPSTREAM. Review upstream changes before syncing."
+            echo "Upstream has changed. Review and sync deliberately; do not auto-merge protocol changes without build and WEB Proxy regression testing." >> "$GITHUB_STEP_SUMMARY"
+          fi
