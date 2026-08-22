@@ -2,18 +2,19 @@
 
 **Bonaqu Desktop** is a personal experimental fork of [Telegram Desktop](https://github.com/telegramdesktop/tdesktop), maintained by **bonaqu**.
 
-The fork tracks Telegram Desktop's current `dev` sources and focuses on Windows x64 testing of the new **WEB Proxy** transport while keeping the codebase as close to upstream as possible.
+The fork focuses on Windows x64 testing of Telegram Desktop's new **WEB Proxy** transport while keeping protocol changes as close to upstream as possible.
 
 > **Important:** Bonaqu Desktop is an independent third-party fork. It is not an official Telegram application and is not affiliated with or endorsed by Telegram Messenger Inc. / Telegram FZ-LLC.
 
 ## Current baseline
 
-- Upstream baseline: Telegram Desktop **7.1.1** (`61fab838d5fd8e8de8d513fb130ecda4e0cda8b9`).
+- Recorded upstream baseline: Telegram Desktop **7.1.1** (`61fab838d5fd8e8de8d513fb130ecda4e0cda8b9`).
 - Primary target: **Windows x64**.
 - WEB Proxy implementation: upstream Telegram Desktop implementation, not a protocol rewrite.
-- Temporary API mode: official Telegram Desktop **test-only API credentials** via `TDESKTOP_API_TEST=ON` while `my.telegram.org/apps` is failing to create a new API application for the maintainer.
+- Temporary API mode: Telegram Desktop **TEST ONLY** credentials via `TDESKTOP_API_TEST=ON` because `my.telegram.org/apps` currently returns a generic `ERROR` when the maintainer attempts to create the first API application.
+- Recorded upstream SHA: [`.bonaqu/upstream-base.txt`](.bonaqu/upstream-base.txt).
 
-The test API mode is intended only for development/testing. A distributable build should use a dedicated `api_id` and `api_hash` as soon as Telegram API Development Tools allows the application to be registered.
+Telegram documents the TEST ONLY credentials as heavily limited and unsuitable for deployment. A normal distributable build must use a dedicated `api_id` and `api_hash` when Telegram API Development Tools allows the application to be registered.
 
 ## Project URL
 
@@ -23,25 +24,47 @@ Repository: **https://github.com/bonaqu/tdesktop-bonaqu**
 
 ## WEB Proxy
 
-Current Telegram Desktop development sources contain the WEB Proxy connection type and the WebView-based MTProto carrier. The design keeps the external WEB Proxy HTTPS connection inside the platform WebView/browser carrier while Telegram's existing MTProxy protocol layer handles the opaque MTProto bytes.
+Current Telegram Desktop development sources contain the WEB Proxy connection type and the WebView-based MTProto carrier. The external WEB Proxy HTTPS connection is made through the platform WebView/browser carrier while Telegram's existing MTProxy protocol layer handles the opaque MTProto bytes.
 
-The feature is new and should still be treated as experimental until its upstream P0/P1 test plan has been exercised against a compatible hosted relay.
+The feature is new and remains experimental until the upstream P0/P1 test plan has been exercised against a compatible hosted relay.
 
-## Bonaqu Windows build
+## Windows x64 test build
 
-The fork contains a focused GitHub Actions workflow for a Windows x64 test build. It deliberately builds only the target needed for Bonaqu Desktop instead of Telegram's full x86/x64/ARM and Qt matrix.
+The fork contains `.github/workflows/bonaqu-win64.yml`, a focused Windows x64 Release workflow instead of Telegram's complete architecture/platform build matrix.
 
-The workflow uses:
+It uses:
 
 ```text
 -D TDESKTOP_API_TEST=ON
+-D DESKTOP_APP_DISABLE_AUTOUPDATE=ON
+-D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
 ```
+
+The artifact contains:
+
+- `BonaquDesktop.exe`;
+- `Start-Bonaqu-Desktop.cmd` — normal isolated launch;
+- `Start-Bonaqu-Desktop-Debug.cmd` — isolated launch with Telegram debug logging;
+- `BUILD-INFO.txt` — source commit and build mode;
+- `SHA256SUMS.txt` — SHA-256 of the executable.
+
+Use the launcher script rather than double-clicking the executable while this build is experimental. The script starts the client with `-workdir <artifact>\BonaquProfile`, keeping its profile separate from normal Telegram Desktop `tdata`.
 
 No private Telegram API secret is committed to this repository.
 
-## Upstream sync policy
+## Testing
 
-Bonaqu-specific changes should remain small and isolated. Upstream security fixes, crash fixes and WEB Proxy fixes take priority over local customization. The fork should be rebased/refreshed onto the newest upstream `dev` baseline before adding substantial features.
+Start with [`docs/bonaqu-testing.md`](docs/bonaqu-testing.md). It contains the Bonaqu smoke-test procedure, isolated-profile rules, diagnostic collection and a summary of the wider upstream WEB Proxy test requirements.
+
+The upstream source of truth is [`docs/web-proxy-test-plan.md`](docs/web-proxy-test-plan.md). A successful compile is not evidence that every WEB Proxy runtime case is correct.
+
+## Upstream maintenance
+
+Bonaqu-specific changes should remain small and isolated. Upstream security fixes, crash fixes and WEB Proxy fixes take priority over local customization.
+
+`.github/workflows/bonaqu-upstream-check.yml` checks Telegram Desktop's `dev` head weekly and reports when it differs from `.bonaqu/upstream-base.txt`. Upstream changes should be reviewed and rebuilt deliberately rather than blindly auto-merged into a network-transport experiment.
+
+The pre-7.1.1 Bonaqu `dev` state is preserved in the `backup-dev-before-7.1.1` branch.
 
 ## References
 
