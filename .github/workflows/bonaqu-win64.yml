@@ -1,0 +1,139 @@
+name: Bonaqu Desktop Windows x64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+      - bonaqu-web-preview
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LEGAL'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bonaqu-win64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Windows x64 Release (Test API)
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    env:
+      TBUILD: ${{ github.workspace }}\TBuild
+      REPO_NAME: tdesktop-bonaqu
+      PREPARE_PATH: Telegram/build/prepare/prepare.py
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Prepare build directories
+        run: |
+          mkdir "%TBUILD%\Libraries"
+
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: TBuild\tdesktop-bonaqu
+
+      - name: Read required Windows SDK
+        shell: bash
+        run: |
+          DOCPATH="$GITHUB_WORKSPACE/TBuild/tdesktop-bonaqu/docs/building-win.md"
+          SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/' | head -n1)"
+          if [ -z "$SDK" ]; then
+            echo "Could not determine required Windows SDK from docs/building-win.md" >&2
+            exit 1
+          fi
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          echo "Required SDK: $SDK"
+
+      - name: Configure MSVC environment
+        uses: Eden-CI/msvc-dev-cmd@master
+        with:
+          arch: x64
+          sdk: ${{ env.SDK }}
+          toolset: '14.44'
+
+      - name: Configure NuGet sources
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages" || exit /b 0
+          nuget sources Add -Source https://api.nuget.org/v3/index.json || exit /b 0
+
+      - name: Cache third-party sources
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: bonaqu-thirdparty-${{ runner.os }}-${{ hashFiles('TBuild/tdesktop-bonaqu/Telegram/build/prepare/prepare.py') }}
+          restore-keys: |
+            bonaqu-thirdparty-${{ runner.os }}-
+
+      - name: Cache prepared libraries
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.TBUILD }}\Libraries\win64
+          key: bonaqu-libs-${{ runner.os }}-${{ hashFiles('TBuild/tdesktop-bonaqu/Telegram/build/prepare/prepare.py') }}
+          restore-keys: |
+            bonaqu-libs-${{ runner.os }}-
+
+      - name: Prepare Telegram Desktop dependencies
+        run: |
+          cd /d "%TBUILD%\tdesktop-bonaqu"
+          Telegram\build\prepare\win.bat skip-release silent
+
+      - name: Configure Bonaqu Desktop
+        run: |
+          cd /d "%TBUILD%\tdesktop-bonaqu\Telegram"
+          call configure.bat x64 ^
+            -D TDESKTOP_API_TEST=ON ^
+            -D CMAKE_CONFIGURATION_TYPES=Release ^
+            -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
+            -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+
+      - name: Build Telegram executable
+        run: |
+          cd /d "%TBUILD%\tdesktop-bonaqu\Telegram"
+          cmake --build ..\out --config Release --target Telegram --parallel
+
+      - name: Package Bonaqu test build
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:TBUILD 'tdesktop-bonaqu\out\Release'
+          $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquDesktop-Windows-x64-TestAPI'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          $telegram = Join-Path $out 'Telegram.exe'
+          if (-not (Test-Path $telegram)) {
+            throw "Telegram.exe was not produced at $telegram"
+          }
+          Copy-Item $telegram (Join-Path $package 'BonaquDesktop.exe')
+          @"
+          Bonaqu Desktop experimental Windows x64 build
+          Source commit: $env:GITHUB_SHA
+          Build mode: Release
+          Telegram API mode: TDESKTOP_API_TEST=ON (TEST ONLY)
+          Auto-update: disabled
+          Crash reporting: disabled
+
+          This build uses Telegram Desktop's test-only API credentials and is intended
+          only for development/testing of the WEB Proxy implementation. It is not a
+          normal distributable Telegram client build.
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
+
+      - name: Upload Bonaqu Desktop artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Bonaqu-Desktop-Windows-x64-TestAPI-${{ github.sha }}
+          path: BonaquDesktop-Windows-x64-TestAPI\
+          if-no-files-found: error
+          retention-days: 14
