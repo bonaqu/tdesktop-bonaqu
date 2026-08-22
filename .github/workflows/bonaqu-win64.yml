@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - dev
-      - bonaqu-web-preview
     paths-ignore:
       - 'docs/**'
       - '**.md'
@@ -29,15 +28,17 @@ jobs:
       TBUILD: ${{ github.workspace }}\TBuild
       REPO_NAME: tdesktop-bonaqu
       PREPARE_PATH: Telegram/build/prepare/prepare.py
+      LIBRARIES_PATH: ${{ github.workspace }}\TBuild\Libraries\win64
 
     defaults:
       run:
         shell: cmd
 
     steps:
-      - name: Prepare build directories
+      - name: Prepare short TBuild path
         run: |
-          if not exist "%TBUILD%\Libraries" mkdir "%TBUILD%\Libraries"
+          if not exist "%USERPROFILE%\TBuild\Libraries" mkdir "%USERPROFILE%\TBuild\Libraries"
+          mklink /d "%GITHUB_WORKSPACE%\TBuild" "%USERPROFILE%\TBuild"
 
       - name: Checkout source
         uses: actions/checkout@v7
@@ -72,7 +73,7 @@ jobs:
             throw 'Bonaqu Desktop runtime branding is missing.'
           }
 
-      - name: Read required Windows SDK
+      - name: Read SDK and build cache key
         shell: bash
         run: |
           DOCPATH="$GITHUB_WORKSPACE/TBuild/tdesktop-bonaqu/docs/building-win.md"
@@ -82,6 +83,11 @@ jobs:
             exit 1
           fi
           echo "SDK=$SDK" >> "$GITHUB_ENV"
+          {
+            sha256sum "$GITHUB_WORKSPACE/TBuild/tdesktop-bonaqu/$PREPARE_PATH"
+            printf '%s\n' "$SDK"
+          } > CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> "$GITHUB_ENV"
           echo "Required SDK: $SDK"
 
       - name: Configure MSVC environment
@@ -100,15 +106,15 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
-          key: bonaqu-thirdparty-${{ runner.os }}-${{ hashFiles('TBuild/tdesktop-bonaqu/Telegram/build/prepare/prepare.py') }}
+          key: bonaqu-thirdparty-${{ runner.os }}-${{ env.CACHE_KEY }}
           restore-keys: |
             bonaqu-thirdparty-${{ runner.os }}-
 
       - name: Cache prepared libraries
         uses: actions/cache@v6
         with:
-          path: ${{ env.TBUILD }}\Libraries\win64
-          key: bonaqu-libs-${{ runner.os }}-${{ hashFiles('TBuild/tdesktop-bonaqu/Telegram/build/prepare/prepare.py') }}
+          path: ${{ env.LIBRARIES_PATH }}
+          key: bonaqu-libs-${{ runner.os }}-${{ env.CACHE_KEY }}
           restore-keys: |
             bonaqu-libs-${{ runner.os }}-
 
