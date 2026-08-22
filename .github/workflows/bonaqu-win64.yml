@@ -8,8 +8,12 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**.md'
+      - '!docs/building-win*.md'
       - 'LEGAL'
       - 'LICENSE'
+      - '.github/**'
+      - '!.github/workflows/bonaqu-win64.yml'
+      - '.bonaqu/**'
 
 permissions:
   contents: read
@@ -22,7 +26,7 @@ jobs:
   windows-x64:
     name: Windows x64 Release (Test API)
     runs-on: windows-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
 
     env:
       TBUILD: ${{ github.workspace }}\TBuild
@@ -44,12 +48,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
-          path: TBuild\tdesktop-bonaqu
+          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
       - name: Validate WEB Proxy source contract
         shell: pwsh
         run: |
-          $root = Join-Path $env:TBUILD 'tdesktop-bonaqu'
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
           $required = @(
             'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_frame.cpp',
             'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_transport.cpp',
@@ -76,15 +80,16 @@ jobs:
       - name: Read SDK and build cache key
         shell: bash
         run: |
-          DOCPATH="$GITHUB_WORKSPACE/TBuild/tdesktop-bonaqu/docs/building-win.md"
+          DOCPATH="$TBUILD/$REPO_NAME/docs/building-win.md"
           SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/' | head -n1)"
           if [ -z "$SDK" ]; then
             echo "Could not determine required Windows SDK from docs/building-win.md" >&2
             exit 1
           fi
           echo "SDK=$SDK" >> "$GITHUB_ENV"
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
           {
-            sha256sum "$GITHUB_WORKSPACE/TBuild/tdesktop-bonaqu/$PREPARE_PATH"
+            sha256sum "$TBUILD/$REPO_NAME/$PREPARE_PATH"
             printf '%s\n' "$SDK"
           } > CACHE_KEY.txt
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> "$GITHUB_ENV"
@@ -106,26 +111,57 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
-          key: bonaqu-thirdparty-${{ runner.os }}-${{ env.CACHE_KEY }}
+          key: bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-thirdparty-${{ runner.os }}-
+            bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-
 
       - name: Cache prepared libraries
         uses: actions/cache@v6
         with:
-          path: ${{ env.LIBRARIES_PATH }}
-          key: bonaqu-libs-${{ runner.os }}-${{ env.CACHE_KEY }}
+          path: |
+            ${{ env.LIBRARIES_PATH }}\*
+            !${{ env.LIBRARIES_PATH }}\cache_keys
+            !${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
+            ${{ env.LIBRARIES_PATH }}\cache_keys\*
+            !${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
+          key: bonaqu-${{ runner.OS }}-x64-libs-v2-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-libs-${{ runner.os }}-
+            bonaqu-${{ runner.OS }}-x64-libs-v2-
+
+      - name: Cache Qt
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
+            ${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
+          key: bonaqu-${{ runner.OS }}-x64-qt-${{ env.CACHE_KEY }}
+          restore-keys: |
+            bonaqu-${{ runner.OS }}-x64-qt-
 
       - name: Prepare Telegram Desktop dependencies
         run: |
-          cd /d "%TBUILD%\tdesktop-bonaqu"
-          Telegram\build\prepare\win.bat skip-release silent
+          cd /d "%TBUILD%\%REPO_NAME%"
+          echo [BONAQU] Dependency preparation started: %DATE% %TIME%
+          call Telegram\build\prepare\win.bat skip-release
+          if errorlevel 1 exit /b %errorlevel%
+          echo [BONAQU] Dependency preparation completed: %DATE% %TIME%
+
+      - name: Report disk space after dependencies
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize
+
+      - name: Free up dependency build files
+        shell: bash
+        run: |
+          echo "[BONAQU] Cleanup started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          find "$LIBRARIES_PATH" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
+          echo "[BONAQU] Cleanup completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
       - name: Configure Bonaqu Desktop
         run: |
-          cd /d "%TBUILD%\tdesktop-bonaqu\Telegram"
+          cd /d "%TBUILD%\%REPO_NAME%\Telegram"
+          echo [BONAQU] CMake configure started: %DATE% %TIME%
           call configure.bat x64 ^
             -D TDESKTOP_API_TEST=ON ^
             -D CMAKE_CONFIGURATION_TYPES=Release ^
@@ -133,16 +169,21 @@ jobs:
             -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
             -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
             -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          if errorlevel 1 exit /b %errorlevel%
+          echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
       - name: Build Bonaqu Desktop
         run: |
-          cd /d "%TBUILD%\tdesktop-bonaqu\Telegram"
+          cd /d "%TBUILD%\%REPO_NAME%\Telegram"
+          echo [BONAQU] Compilation started: %DATE% %TIME%
           cmake --build ..\out --config Release --target Telegram --parallel
+          if errorlevel 1 exit /b %errorlevel%
+          echo [BONAQU] Compilation completed: %DATE% %TIME%
 
       - name: Package isolated Bonaqu test build
         shell: pwsh
         run: |
-          $out = Join-Path $env:TBUILD 'tdesktop-bonaqu\out\Release'
+          $out = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release"
           $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquDesktop-Windows-x64-TestAPI'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           $telegram = Join-Path $out 'Telegram.exe'
