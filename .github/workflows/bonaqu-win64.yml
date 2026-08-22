@@ -37,13 +37,40 @@ jobs:
     steps:
       - name: Prepare build directories
         run: |
-          mkdir "%TBUILD%\Libraries"
+          if not exist "%TBUILD%\Libraries" mkdir "%TBUILD%\Libraries"
 
       - name: Checkout source
         uses: actions/checkout@v7
         with:
           submodules: recursive
           path: TBuild\tdesktop-bonaqu
+
+      - name: Validate WEB Proxy source contract
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:TBUILD 'tdesktop-bonaqu'
+          $required = @(
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_frame.cpp',
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_transport.cpp',
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_webview.cpp',
+            'Telegram\SourceFiles\mtproto\details\mtproto_web_proxy_socket.cpp',
+            'docs\web-proxy-plan.md',
+            'docs\web-proxy-test-plan.md'
+          )
+          foreach ($relative in $required) {
+            $path = Join-Path $root $relative
+            if (-not (Test-Path $path)) {
+              throw "Required WEB Proxy source is missing: $relative"
+            }
+          }
+          $proxyData = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\mtproto\mtproto_proxy_data.cpp')
+          if ($proxyData -notmatch 'Type::Web' -or $proxyData -notmatch 'NormalizeWebProxyHost') {
+            throw 'WEB Proxy data model/validation was not found in mtproto_proxy_data.cpp'
+          }
+          $version = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\core\version.h')
+          if ($version -notmatch 'AppName = "Bonaqu Desktop"') {
+            throw 'Bonaqu Desktop runtime branding is missing.'
+          }
 
       - name: Read required Windows SDK
         shell: bash
@@ -66,8 +93,8 @@ jobs:
 
       - name: Configure NuGet sources
         run: |
-          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages" || exit /b 0
-          nuget sources Add -Source https://api.nuget.org/v3/index.json || exit /b 0
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit /b 0
 
       - name: Cache third-party sources
         uses: actions/cache@v6
@@ -101,12 +128,12 @@ jobs:
             -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
             -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
 
-      - name: Build Telegram executable
+      - name: Build Bonaqu Desktop
         run: |
           cd /d "%TBUILD%\tdesktop-bonaqu\Telegram"
           cmake --build ..\out --config Release --target Telegram --parallel
 
-      - name: Package Bonaqu test build
+      - name: Package isolated Bonaqu test build
         shell: pwsh
         run: |
           $out = Join-Path $env:TBUILD 'tdesktop-bonaqu\out\Release'
@@ -116,7 +143,27 @@ jobs:
           if (-not (Test-Path $telegram)) {
             throw "Telegram.exe was not produced at $telegram"
           }
-          Copy-Item $telegram (Join-Path $package 'BonaquDesktop.exe')
+
+          $exe = Join-Path $package 'BonaquDesktop.exe'
+          Copy-Item $telegram $exe
+
+          @'
+          @echo off
+          setlocal
+          set "ROOT=%~dp0"
+          if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
+          start "Bonaqu Desktop" "%ROOT%BonaquDesktop.exe" -workdir "%ROOT%BonaquProfile" -noupdate
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Desktop.cmd')
+
+          @'
+          @echo off
+          setlocal
+          set "ROOT=%~dp0"
+          if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
+          start "Bonaqu Desktop Debug" "%ROOT%BonaquDesktop.exe" -workdir "%ROOT%BonaquProfile" -noupdate -debug
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Desktop-Debug.cmd')
+
+          $sha256 = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
           @"
           Bonaqu Desktop experimental Windows x64 build
           Source commit: $env:GITHUB_SHA
@@ -124,11 +171,23 @@ jobs:
           Telegram API mode: TDESKTOP_API_TEST=ON (TEST ONLY)
           Auto-update: disabled
           Crash reporting: disabled
+          Executable SHA-256: $sha256
+
+          IMPORTANT:
+          Start the client with Start-Bonaqu-Desktop.cmd. It forces an isolated
+          BonaquProfile working directory next to the executable so this experimental
+          build does not reuse your normal Telegram Desktop tdata profile.
+
+          Start-Bonaqu-Desktop-Debug.cmd enables Telegram debug logging for diagnosis.
+          Do not publish logs until they have been checked for private information.
 
           This build uses Telegram Desktop's test-only API credentials and is intended
-          only for development/testing of the WEB Proxy implementation. It is not a
-          normal distributable Telegram client build.
+          only for development/testing of the WEB Proxy implementation. Telegram's
+          own documentation warns that TEST ONLY credentials are heavily limited and
+          are not suitable for deployment.
           "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
+
+          "$sha256  BonaquDesktop.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
 
       - name: Upload Bonaqu Desktop artifact
         uses: actions/upload-artifact@v7
