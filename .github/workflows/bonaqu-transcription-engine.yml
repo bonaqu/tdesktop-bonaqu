@@ -1,0 +1,108 @@
+name: Bonaqu Local Transcription Worker
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - dev
+    paths:
+      - '.bonaqu/tools/Build-Bonaqu-Whisper.ps1'
+      - '.github/workflows/bonaqu-transcription-engine.yml'
+      - 'docs/local-transcription.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bonaqu-transcription-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-cpu-worker:
+    name: Windows x64 CPU worker
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Bonaqu Client
+        uses: actions/checkout@v7
+
+      - name: Parse PowerShell build script
+        shell: pwsh
+        run: |
+          $path = '.bonaqu\tools\Build-Bonaqu-Whisper.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $path),
+            [ref]$tokens,
+            [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'Build-Bonaqu-Whisper.ps1 contains PowerShell syntax errors.'
+          }
+          Write-Host '[BONAQU] PowerShell build script parsed successfully.'
+
+      - name: Configure MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build pinned whisper.cpp CPU worker
+        shell: pwsh
+        run: |
+          .\.bonaqu\tools\Build-Bonaqu-Whisper.ps1 `
+            -Clean `
+            -OutputDirectory 'artifacts\BonaquLocalTranscription'
+
+      - name: Verify engine package contract
+        shell: pwsh
+        run: |
+          $root = 'artifacts\BonaquLocalTranscription'
+          $required = @(
+            'BonaquWhisperWorker.exe',
+            'WHISPER-CPP-LICENSE.txt',
+            'ENGINE-INFO.txt',
+            'SHA256SUMS.txt'
+          )
+          foreach ($file in $required) {
+            $path = Join-Path $root $file
+            if (-not (Test-Path $path)) {
+              throw "Missing worker artifact: $path"
+            }
+          }
+
+          $info = Get-Content -Raw (Join-Path $root 'ENGINE-INFO.txt')
+          if ($info -notmatch '233fe1fc9b48a09e361d3594520838ca266537fe') {
+            throw 'Worker metadata does not contain the reviewed whisper.cpp commit pin.'
+          }
+          if ($info -notmatch 'Models bundled: no') {
+            throw 'Worker package contract unexpectedly claims a bundled model.'
+          }
+
+          $actual = (Get-FileHash -Algorithm SHA256 (Join-Path $root 'BonaquWhisperWorker.exe')).Hash.ToLowerInvariant()
+          $sums = Get-Content -Raw (Join-Path $root 'SHA256SUMS.txt')
+          if ($sums -notmatch [regex]::Escape($actual)) {
+            throw 'Worker SHA-256 manifest does not match the built executable.'
+          }
+
+          @"
+          ## Bonaqu local transcription worker
+
+          - Platform: Windows x64
+          - Backend: CPU baseline
+          - Source: ggml-org/whisper.cpp
+          - Pinned commit: `233fe1fc9b48a09e361d3594520838ca266537fe`
+          - Model bundled: no
+          - Worker SHA-256: `$actual`
+
+          This is an engine foundation artifact, not a completed Telegram transcription feature.
+          "@ | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload optional worker artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Bonaqu-Local-Transcription-Worker-Windows-x64-${{ github.sha }}
+          path: artifacts\BonaquLocalTranscription\
+          if-no-files-found: error
+          retention-days: 14
