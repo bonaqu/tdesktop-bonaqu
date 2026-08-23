@@ -152,7 +152,7 @@ jobs:
           restore-keys: |
             bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-
 
-      - name: Cache prepared libraries
+      - name: Cache prepared Release libraries
         uses: actions/cache@v6
         with:
           path: |
@@ -161,27 +161,43 @@ jobs:
             !${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
             ${{ env.LIBRARIES_PATH }}\cache_keys\*
             !${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
-          key: bonaqu-${{ runner.OS }}-x64-libs-v2-${{ env.CACHE_KEY }}
+          key: bonaqu-${{ runner.OS }}-x64-libs-v3-release-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-${{ runner.OS }}-x64-libs-v2-
+            bonaqu-${{ runner.OS }}-x64-libs-v3-release-
 
-      - name: Cache Qt
+      - name: Cache Release Qt
         uses: actions/cache@v6
         with:
           path: |
             ${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
             ${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
-          key: bonaqu-${{ runner.OS }}-x64-qt-${{ env.CACHE_KEY }}
+          key: bonaqu-${{ runner.OS }}-x64-qt-release-v2-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-${{ runner.OS }}-x64-qt-
+            bonaqu-${{ runner.OS }}-x64-qt-release-v2-
 
-      - name: Prepare Telegram Desktop dependencies
+      - name: Prepare Telegram Desktop Release dependencies
         run: |
           cd /d "%TBUILD%\%REPO_NAME%"
-          echo [BONAQU] Dependency preparation started: %DATE% %TIME%
-          call Telegram\build\prepare\win.bat skip-release
+          echo [BONAQU] Release dependency preparation started: %DATE% %TIME%
+          call Telegram\build\prepare\win.bat silent
           if errorlevel 1 exit /b %errorlevel%
-          echo [BONAQU] Dependency preparation completed: %DATE% %TIME%
+          echo [BONAQU] Release dependency preparation completed: %DATE% %TIME%
+
+      - name: Validate required Release dependencies
+        shell: pwsh
+        run: |
+          $required = @(
+            (Join-Path $env:LIBRARIES_PATH 'tg_angle\out\Release\tg_angle.lib'),
+            (Join-Path $env:LIBRARIES_PATH 'libavif\Release\avif.lib')
+          )
+          $missing = @($required | Where-Object { -not (Test-Path $_) })
+          if ($missing.Count -gt 0) {
+            Write-Host '[BONAQU] Required Release dependencies are missing:'
+            $missing | ForEach-Object { Write-Host "  - $_" }
+            throw 'Release dependency preparation is incomplete. Do not continue to the Telegram linker.'
+          }
+          Write-Host '[BONAQU] Release dependency guard passed:'
+          $required | ForEach-Object { Write-Host "  - $_" }
 
       - name: Report disk space after dependencies
         shell: pwsh
