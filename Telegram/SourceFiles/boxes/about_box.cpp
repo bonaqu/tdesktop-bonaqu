@@ -64,7 +64,7 @@ rpl::producer<TextWithEntities> Text3() {
 } // namespace
 
 void AboutBox(not_null<Ui::GenericBox*> box) {
-	box->setTitle(u"Telegram Desktop"_q);
+	box->setTitle(u"Bonaqu Client"_q);
 
 	auto layout = box->verticalLayout();
 
@@ -114,6 +114,26 @@ void AboutBox(not_null<Ui::GenericBox*> box) {
 	});
 
 	Ui::AddSkip(layout, st::aboutTopSkip);
+
+	const auto forkInfo = layout->add(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Unofficial Telegram client by bonaqu. Built on Telegram Desktop and using the Telegram API. BonaquDesktop26 / bonaqu26."_q),
+			st::aboutLabel),
+		st::boxRowPadding);
+	forkInfo->setAttribute(Qt::WA_TransparentForMouseEvents);
+	Ui::AddSkip(layout, st::aboutSkip);
+
+	const auto source = layout->add(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Bonaqu Client source code"_q,
+			st::aboutVersionLink),
+		st::boxRowPadding);
+	source->setClickedCallback([] {
+		File::OpenUrl(u"https://github.com/bonaqu/tdesktop-bonaqu"_q);
+	});
+	Ui::AddSkip(layout, st::aboutSkip);
 
 	const auto addText = [&](rpl::producer<TextWithEntities> text) {
 		const auto label = layout->add(
