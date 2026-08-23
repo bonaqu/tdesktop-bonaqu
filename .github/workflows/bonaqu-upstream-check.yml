@@ -2,6 +2,14 @@ name: Bonaqu Upstream Check
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/bonaqu-upstream-check.yml'
+      - '.bonaqu/upstream-base.txt'
+      - '.bonaqu/features.json'
+      - 'docs/upstream-sync-policy.md'
   schedule:
     - cron: '17 7 * * *'
 
@@ -26,15 +34,18 @@ jobs:
             .schema == 1 and
             (.statuses | type == "array") and
             (.features | type == "array") and
-            ([.features[].id] | length == (unique | length)) and
-            all(.features[]; (.id | type == "string") and (.status as $s | .statuses? // empty))
-          ' .bonaqu/features.json >/dev/null || {
-            # Keep validation explicit because jq scope inside all() is easy to misread.
-            jq -e '.schema == 1 and (.features | type == "array") and ([.features[].id] | length == ([.features[].id] | unique | length))' .bonaqu/features.json >/dev/null
-          }
+            ([.features[].id] | length == ([.features[].id] | unique | length))
+          ' .bonaqu/features.json >/dev/null
 
-          jq -e --argjson allowed '$(jq -c '.statuses' .bonaqu/features.json)' '
-            all(.features[]; .status as $status | $allowed | index($status) != null)
+          jq -e '
+            .statuses as $allowed |
+            all(.features[];
+              (.id | type == "string") and
+              (.name | type == "string") and
+              (.status as $status | ($allowed | index($status)) != null) and
+              (.kind | type == "string") and
+              (.supersession_rule | type == "string")
+            )
           ' .bonaqu/features.json >/dev/null
 
       - name: Compare recorded baseline with Telegram Desktop
