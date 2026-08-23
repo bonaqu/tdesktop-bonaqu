@@ -2,6 +2,15 @@ name: Bonaqu Client Windows x64
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - dev
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.bonaqu/**'
   push:
     branches:
       - dev
@@ -24,7 +33,7 @@ concurrency:
 
 jobs:
   windows-x64:
-    name: Windows x64 Release (Personal API)
+    name: Windows x64 build
     runs-on: windows-latest
     timeout-minutes: 300
 
@@ -41,9 +50,15 @@ jobs:
         shell: cmd
 
     steps:
-      - name: Validate Bonaqu Telegram API credentials
+      - name: Select Telegram API credential mode
         shell: pwsh
         run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            Write-Host '[BONAQU] Pull-request compile uses Telegram Desktop TEST ONLY credentials.'
+            Write-Host '[BONAQU] Personal API Secrets are not required and no PR artifact will be published.'
+            exit 0
+          }
+
           if ([string]::IsNullOrWhiteSpace($env:BONAQU_API_ID)) {
             throw 'Missing GitHub Actions secret BONAQU_TDESKTOP_API_ID.'
           }
@@ -56,7 +71,7 @@ jobs:
           if ($env:BONAQU_API_HASH -notmatch '^[0-9a-fA-F]{32}$') {
             throw 'BONAQU_TDESKTOP_API_HASH must be a 32-character hexadecimal API hash.'
           }
-          Write-Host '[BONAQU] Personal Telegram API credentials are configured.'
+          Write-Host '[BONAQU] Personal Telegram API credentials are configured for a distributable build.'
 
       - name: Prepare short TBuild path
         run: |
@@ -184,9 +199,10 @@ jobs:
         run: |
           cd /d "%TBUILD%\%REPO_NAME%\Telegram"
           echo [BONAQU] CMake configure started: %DATE% %TIME%
+          set "BONAQU_API_ARGS=-D TDESKTOP_API_TEST=ON"
+          if not "%GITHUB_EVENT_NAME%"=="pull_request" set "BONAQU_API_ARGS=-D TDESKTOP_API_ID=%BONAQU_API_ID% -D TDESKTOP_API_HASH=%BONAQU_API_HASH%"
           call configure.bat x64 ^
-            -D TDESKTOP_API_ID=%BONAQU_API_ID% ^
-            -D TDESKTOP_API_HASH=%BONAQU_API_HASH% ^
+            %BONAQU_API_ARGS% ^
             -D CMAKE_CONFIGURATION_TYPES=Release ^
             -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
             -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
@@ -203,7 +219,22 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] Compilation completed: %DATE% %TIME%
 
+      - name: Report pull-request compile result
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          @'
+          ## Bonaqu Client PR compile
+
+          Windows x64 Release compilation completed with Telegram Desktop TEST ONLY API credentials.
+
+          - Personal Bonaqu API Secrets were not required by this PR build.
+          - No executable artifact is published from PR builds.
+          - A distributable build still uses the personal API credentials on `dev` / manual workflow runs.
+          '@ | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+
       - name: Package isolated Bonaqu Client build
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $root = Join-Path $env:TBUILD $env:REPO_NAME
@@ -279,6 +310,7 @@ jobs:
           "$sha256  BonaquClient.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
 
       - name: Upload Bonaqu Client artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: Bonaqu-Client-Windows-x64-${{ github.sha }}
