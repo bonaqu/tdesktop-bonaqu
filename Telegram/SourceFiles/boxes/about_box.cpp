@@ -9,10 +9,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/platform/base_platform_info.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "core/file_utilities.h"
 #include "core/update_checker.h"
 #include "core/version.h"
 #include "lang/lang_keys.h"
+#include "mtproto/mtproto_proxy_data.h"
+#include "settings.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/painter.h"
 #include "ui/rect.h"
@@ -59,6 +62,49 @@ rpl::producer<TextWithEntities> Text3() {
 		lt_faq_link,
 		tr::lng_about_text3_faq(tr::url(telegramFaqLink())),
 		tr::marked);
+}
+
+QString BonaquProxyTypeText() {
+	const auto &proxy = Core::App().settings().proxy();
+	if (!proxy.isEnabled()) {
+		return u"disabled"_q;
+	}
+	using Type = MTP::ProxyData::Type;
+	switch (proxy.selected().type) {
+	case Type::None: return u"none"_q;
+	case Type::Socks5: return u"SOCKS5"_q;
+	case Type::Http: return u"HTTP"_q;
+	case Type::Mtproto: return u"MTProto"_q;
+	case Type::Web: return u"WEB Proxy"_q;
+	}
+	Unexpected("Proxy type in Bonaqu diagnostics.");
+}
+
+QString BonaquSafeDiagnostics() {
+	const auto architecture = Platform::IsWindowsARM64()
+		? u"arm64"_q
+		: Platform::IsWindows64Bit()
+		? u"x64"_q
+		: Platform::IsWindows32Bit()
+		? u"x86"_q
+		: u"other"_q;
+	const auto profileMode = cWorkingDir().isEmpty()
+		? u"default"_q
+		: u"isolated/custom workdir"_q;
+
+	return u"Bonaqu Client safe diagnostics\n"
+		u"Version: %1\n"
+		u"Architecture: %2\n"
+		u"Profile mode: %3\n"
+		u"Proxy: %4\n"
+		u"Auto-update: disabled in Bonaqu build\n"
+		u"Crash reporting: disabled in Bonaqu build\n"
+		u"API application: BonaquDesktop26 / bonaqu26\n"
+		u"Source: https://github.com/bonaqu/tdesktop-bonaqu"
+		.arg(currentVersionText())
+		.arg(architecture)
+		.arg(profileMode)
+		.arg(BonaquProxyTypeText());
 }
 
 } // namespace
@@ -132,6 +178,52 @@ void AboutBox(not_null<Ui::GenericBox*> box) {
 		st::boxRowPadding);
 	source->setClickedCallback([] {
 		File::OpenUrl(u"https://github.com/bonaqu/tdesktop-bonaqu"_q);
+	});
+	Ui::AddSkip(layout, st::aboutSkip);
+
+	const auto toolsTitle = layout->add(
+		object_ptr<Ui::FlatLabel>(
+			box,
+			rpl::single(u"Bonaqu Control Center"_q),
+			st::boxTitle),
+		st::boxRowPadding);
+	toolsTitle->setAttribute(Qt::WA_TransparentForMouseEvents);
+	Ui::AddSkip(layout, st::aboutSkip);
+
+	const auto diagnostics = layout->add(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Copy safe connection diagnostics"_q,
+			st::aboutVersionLink),
+		st::boxRowPadding);
+	diagnostics->setClickedCallback([=] {
+		QGuiApplication::clipboard()->setText(BonaquSafeDiagnostics());
+		box->getDelegate()->show(
+			Ui::MakeInformBox(
+				u"Bonaqu diagnostics copied. The summary excludes proxy hosts, credentials, account identifiers and absolute profile paths."_q));
+	});
+	Ui::AddSkip(layout, st::aboutSkip);
+
+	const auto dataFolder = layout->add(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Open Bonaqu data folder"_q,
+			st::aboutVersionLink),
+		st::boxRowPadding);
+	dataFolder->setClickedCallback([] {
+		const auto path = cWorkingDir().isEmpty() ? cExeDir() : cWorkingDir();
+		File::Launch(path);
+	});
+	Ui::AddSkip(layout, st::aboutSkip);
+
+	const auto roadmap = layout->add(
+		object_ptr<Ui::LinkButton>(
+			box,
+			u"Bonaqu features and upstream policy"_q,
+			st::aboutVersionLink),
+		st::boxRowPadding);
+	roadmap->setClickedCallback([] {
+		File::OpenUrl(u"https://github.com/bonaqu/tdesktop-bonaqu/blob/dev/docs/bonaqu-features.md"_q);
 	});
 	Ui::AddSkip(layout, st::aboutSkip);
 
