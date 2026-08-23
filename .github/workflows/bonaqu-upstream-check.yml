@@ -3,24 +3,48 @@ name: Bonaqu Upstream Check
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 8 * * 1'
+    - cron: '17 7 * * *'
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   upstream-drift:
-    name: Check Telegram Desktop dev baseline
+    name: Track Telegram Desktop upstream
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Checkout Bonaqu Desktop
+      - name: Checkout Bonaqu Client
         uses: actions/checkout@v7
 
-      - name: Compare recorded baseline with upstream dev
+      - name: Validate Bonaqu feature registry
         shell: bash
         run: |
           set -euo pipefail
+          jq -e '
+            .schema == 1 and
+            (.statuses | type == "array") and
+            (.features | type == "array") and
+            ([.features[].id] | length == (unique | length)) and
+            all(.features[]; (.id | type == "string") and (.status as $s | .statuses? // empty))
+          ' .bonaqu/features.json >/dev/null || {
+            # Keep validation explicit because jq scope inside all() is easy to misread.
+            jq -e '.schema == 1 and (.features | type == "array") and ([.features[].id] | length == ([.features[].id] | unique | length))' .bonaqu/features.json >/dev/null
+          }
+
+          jq -e --argjson allowed '$(jq -c '.statuses' .bonaqu/features.json)' '
+            all(.features[]; .status as $status | $allowed | index($status) != null)
+          ' .bonaqu/features.json >/dev/null
+
+      - name: Compare recorded baseline with Telegram Desktop
+        id: drift
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
           BASE="$(tr -d '\r\n ' < .bonaqu/upstream-base.txt)"
           UPSTREAM="$(git ls-remote https://github.com/telegramdesktop/tdesktop.git refs/heads/dev | awk '{print $1}')"
 
@@ -29,16 +53,128 @@ jobs:
             exit 1
           fi
 
+          headers=(-H "Accept: application/vnd.github+json")
+          if [ -n "${GH_TOKEN:-}" ]; then
+            headers+=(-H "Authorization: Bearer ${GH_TOKEN}")
+          fi
+
+          compare_url="https://api.github.com/repos/telegramdesktop/tdesktop/compare/${BASE}...${UPSTREAM}"
+          compare_json="$(curl -fsSL "${headers[@]}" "$compare_url")"
+          latest_json="$(curl -fsSL "${headers[@]}" https://api.github.com/repos/telegramdesktop/tdesktop/releases/latest || printf '{}')"
+
+          status="$(jq -r '.status // "unknown"' <<<"$compare_json")"
+          ahead="$(jq -r '.ahead_by // 0' <<<"$compare_json")"
+          latest_tag="$(jq -r '.tag_name // "unknown"' <<<"$latest_json")"
+          changed=false
+          if [ "$BASE" != "$UPSTREAM" ]; then
+            changed=true
+          fi
+
+          recent="$(jq -r '
+            [.commits[-8:][]? | "- `" + .sha[0:7] + "` " + (.commit.message | split("\n")[0])] | join("\n")
+          ' <<<"$compare_json")"
+          if [ -z "$recent" ]; then
+            recent="- No commit summary returned by GitHub compare API."
+          fi
+
           {
-            echo "## Bonaqu Desktop upstream check"
+            echo "base=$BASE"
+            echo "upstream=$UPSTREAM"
+            echo "status=$status"
+            echo "ahead=$ahead"
+            echo "latest_tag=$latest_tag"
+            echo "changed=$changed"
+            echo "recent<<EOF"
+            echo "$recent"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Bonaqu Client upstream check"
             echo
             echo "Recorded baseline: \`$BASE\`"
             echo "Telegram Desktop dev: \`$UPSTREAM\`"
+            echo "GitHub compare status: **$status**"
+            echo "Upstream commits after baseline: **$ahead**"
+            echo "Latest GitHub release tag: **$latest_tag**"
+            echo
+            echo "### Recent upstream commits"
+            echo "$recent"
+            echo
+            echo "Policy: [docs/upstream-sync-policy.md](../../blob/dev/docs/upstream-sync-policy.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$BASE" = "$UPSTREAM" ]; then
-            echo "Bonaqu Desktop is based on the current Telegram Desktop dev head." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning title=Telegram Desktop upstream changed::Recorded Bonaqu baseline is $BASE, current upstream dev is $UPSTREAM. Review upstream changes before syncing."
-            echo "Upstream has changed. Review and sync deliberately; do not auto-merge protocol changes without build and WEB Proxy regression testing." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$changed" = true ]; then
+            echo "::warning title=Telegram Desktop upstream changed::Recorded Bonaqu baseline is $BASE; current upstream dev is $UPSTREAM ($ahead commits reported by compare API)."
           fi
+
+      - name: Open or refresh upstream drift issue
+        if: steps.drift.outputs.changed == 'true'
+        uses: actions/github-script@v8
+        env:
+          BASE: ${{ steps.drift.outputs.base }}
+          UPSTREAM: ${{ steps.drift.outputs.upstream }}
+          AHEAD: ${{ steps.drift.outputs.ahead }}
+          STATUS: ${{ steps.drift.outputs.status }}
+          LATEST_TAG: ${{ steps.drift.outputs.latest_tag }}
+          RECENT: ${{ steps.drift.outputs.recent }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Upstream drift: Telegram Desktop';
+            const marker = '<!-- bonaqu-upstream-drift -->';
+            const compare = `https://github.com/telegramdesktop/tdesktop/compare/${process.env.BASE}...${process.env.UPSTREAM}`;
+            const body = `${marker}
+            ## Telegram Desktop changed upstream
+
+            Bonaqu recorded baseline: \`${process.env.BASE}\`
+            Current Telegram Desktop \`dev\`: \`${process.env.UPSTREAM}\`
+            Compare status: **${process.env.STATUS}**
+            Commits after baseline: **${process.env.AHEAD}**
+            Latest GitHub release tag: **${process.env.LATEST_TAG}**
+
+            ### Recent commits
+            ${process.env.RECENT}
+
+            [Open upstream comparison](${compare})
+
+            Follow \`docs/upstream-sync-policy.md\`: stable-first sync, with earlier cherry-picks only for reviewed security/protocol/crash fixes. Do not blindly merge upstream into the distributable branch.`;
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
+
+      - name: Close resolved upstream drift issue
+        if: steps.drift.outputs.changed == 'false'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const title = 'Upstream drift: Telegram Desktop';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
