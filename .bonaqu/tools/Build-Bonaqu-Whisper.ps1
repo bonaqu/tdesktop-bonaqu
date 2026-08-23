@@ -11,7 +11,7 @@ $WhisperCommit = '233fe1fc9b48a09e361d3594520838ca266537fe'
 $WhisperVersionLabel = '1.9.3-dev-bonaqu-pinned'
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Resolve-Path (Join-Path $scriptRoot '..\..')
+$repoRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
 $cacheRoot = Join-Path $repoRoot '.bonaqu\cache\local-transcription'
 $sourceRoot = Join-Path $cacheRoot 'whisper.cpp'
 $buildRoot = Join-Path $cacheRoot 'build-whisper-cpu'
@@ -30,13 +30,7 @@ function Invoke-Checked {
     )
 
     Write-Host ('> ' + $FilePath + ' ' + ($Arguments -join ' '))
-    $process = Start-Process \
-        -FilePath $FilePath \
-        -ArgumentList $Arguments \
-        -WorkingDirectory $WorkingDirectory \
-        -Wait \
-        -PassThru \
-        -NoNewWindow
+    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -Wait -PassThru -NoNewWindow
     if ($process.ExitCode -ne 0) {
         throw "$FilePath failed with exit code $($process.ExitCode)."
     }
