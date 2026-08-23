@@ -10,12 +10,12 @@ on:
       - '.bonaqu/upstream-base.txt'
       - '.bonaqu/features.json'
       - 'docs/upstream-sync-policy.md'
+      - 'docs/bonaqu-roadmap.md'
   schedule:
     - cron: '17 7 * * *'
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   upstream-drift:
@@ -95,9 +95,6 @@ jobs:
             echo "ahead=$ahead"
             echo "latest_tag=$latest_tag"
             echo "changed=$changed"
-            echo "recent<<EOF"
-            echo "$recent"
-            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -112,80 +109,42 @@ jobs:
             echo "### Recent upstream commits"
             echo "$recent"
             echo
+            if [ "$changed" = true ]; then
+              echo "> ⚠️ Upstream drift exists. Review it under the stable-first policy before updating Bonaqu Client."
+            else
+              echo "> ✅ Bonaqu's recorded baseline matches Telegram Desktop dev."
+            fi
+            echo
             echo "Policy: [docs/upstream-sync-policy.md](../../blob/dev/docs/upstream-sync-policy.md)"
+            echo "Roadmap: [docs/bonaqu-roadmap.md](../../blob/dev/docs/bonaqu-roadmap.md)"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$changed" = true ]; then
             echo "::warning title=Telegram Desktop upstream changed::Recorded Bonaqu baseline is $BASE; current upstream dev is $UPSTREAM ($ahead commits reported by compare API)."
           fi
 
-      - name: Open or refresh upstream drift issue
-        if: steps.drift.outputs.changed == 'true'
-        uses: actions/github-script@v8
-        env:
-          BASE: ${{ steps.drift.outputs.base }}
-          UPSTREAM: ${{ steps.drift.outputs.upstream }}
-          AHEAD: ${{ steps.drift.outputs.ahead }}
-          STATUS: ${{ steps.drift.outputs.status }}
-          LATEST_TAG: ${{ steps.drift.outputs.latest_tag }}
-          RECENT: ${{ steps.drift.outputs.recent }}
+      - name: Save machine-readable drift snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p upstream-status
+          cat > upstream-status/status.json <<EOF
+          {
+            "checked_at_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "recorded_baseline": "${{ steps.drift.outputs.base }}",
+            "upstream_dev": "${{ steps.drift.outputs.upstream }}",
+            "compare_status": "${{ steps.drift.outputs.status }}",
+            "upstream_commits_after_baseline": ${{ steps.drift.outputs.ahead }},
+            "latest_release_tag": "${{ steps.drift.outputs.latest_tag }}",
+            "drift": ${{ steps.drift.outputs.changed }}
+          }
+          EOF
+          jq . upstream-status/status.json
+
+      - name: Upload upstream status snapshot
+        uses: actions/upload-artifact@v7
         with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const title = 'Upstream drift: Telegram Desktop';
-            const marker = '<!-- bonaqu-upstream-drift -->';
-            const compare = `https://github.com/telegramdesktop/tdesktop/compare/${process.env.BASE}...${process.env.UPSTREAM}`;
-            const body = `${marker}
-            ## Telegram Desktop changed upstream
-
-            Bonaqu recorded baseline: \`${process.env.BASE}\`
-            Current Telegram Desktop \`dev\`: \`${process.env.UPSTREAM}\`
-            Compare status: **${process.env.STATUS}**
-            Commits after baseline: **${process.env.AHEAD}**
-            Latest GitHub release tag: **${process.env.LATEST_TAG}**
-
-            ### Recent commits
-            ${process.env.RECENT}
-
-            [Open upstream comparison](${compare})
-
-            Follow \`docs/upstream-sync-policy.md\`: stable-first sync, with earlier cherry-picks only for reviewed security/protocol/crash fixes. Do not blindly merge upstream into the distributable branch.`;
-
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open',
-              per_page: 100,
-            });
-            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
-            if (existing) {
-              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
-            } else {
-              await github.rest.issues.create({ owner, repo, title, body });
-            }
-
-      - name: Close resolved upstream drift issue
-        if: steps.drift.outputs.changed == 'false'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const title = 'Upstream drift: Telegram Desktop';
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open',
-              per_page: 100,
-            });
-            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
-            if (existing) {
-              await github.rest.issues.update({
-                owner,
-                repo,
-                issue_number: existing.number,
-                state: 'closed',
-                state_reason: 'completed',
-              });
-            }
+          name: bonaqu-upstream-status-${{ github.run_id }}
+          path: upstream-status/status.json
+          if-no-files-found: error
+          retention-days: 30
