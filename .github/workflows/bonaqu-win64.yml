@@ -206,7 +206,8 @@ jobs:
       - name: Package isolated Bonaqu Client build
         shell: pwsh
         run: |
-          $out = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release"
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $out = Join-Path $root 'out\Release'
           $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquClient-Windows-x64'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           $telegram = Join-Path $out 'Telegram.exe'
@@ -233,6 +234,18 @@ jobs:
           start "Bonaqu Client Debug" "%ROOT%BonaquClient.exe" -workdir "%ROOT%BonaquProfile" -noupdate -debug
           '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Client-Debug.cmd')
 
+          $profileManagerSource = Join-Path $root '.bonaqu\tools\Bonaqu-Profile-Manager.ps1'
+          if (-not (Test-Path $profileManagerSource)) {
+            throw "Bonaqu Profile Manager was not found at $profileManagerSource"
+          }
+          Copy-Item $profileManagerSource (Join-Path $package 'Bonaqu-Profile-Manager.ps1')
+
+          @'
+          @echo off
+          setlocal
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Bonaqu-Profile-Manager.ps1"
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Bonaqu-Profiles.cmd')
+
           $sha256 = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
           @"
           Bonaqu Client experimental Windows x64 build
@@ -251,11 +264,16 @@ jobs:
           BonaquProfile working directory next to the executable, so this fork never
           reuses the normal Telegram Desktop tdata profile.
 
+          Bonaqu-Profiles.cmd opens the Bonaqu Profile Manager. It can create and launch
+          multiple independent local profiles with -many and separate -workdir folders.
+
           Start-Bonaqu-Client-Debug.cmd enables Telegram debug logging for diagnosis.
           Never publish debug logs before checking them for private information.
 
-          The api_hash is never written into this package by this script and is not
-          printed to the GitHub Actions log by the workflow.
+          The api_id and api_hash are not committed to this repository and this workflow
+          does not intentionally print them. Telegram Desktop compiles API credentials
+          into the client binary, so anyone who receives the executable should be assumed
+          capable of recovering those credentials by inspecting the binary.
           "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
 
           "$sha256  BonaquClient.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
