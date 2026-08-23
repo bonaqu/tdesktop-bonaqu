@@ -17,11 +17,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #define TDESKTOP_ALPHA_VERSION (0ULL)
 #endif // TDESKTOP_ALLOW_CLOSED_ALPHA
 
-// used in Updater.cpp and Setup.iss for Windows
-constexpr auto AppId = "{53F49750-6209-4FBF-9CA8-7A333C87D1ED}"_cs;
-constexpr auto AppNameOld = "Telegram Win (Unofficial)"_cs;
-constexpr auto AppName = "Bonaqu Desktop"_cs;
-constexpr auto AppFile = "Telegram"_cs;
+// Bonaqu Client has its own Windows application identity and must not share
+// installer/update identity with the official Telegram Desktop application.
+constexpr auto AppId = "{D4195297-1CA0-47BB-9EB9-8239E93692A9}"_cs;
+constexpr auto AppNameOld = "Bonaqu Client Legacy"_cs;
+constexpr auto AppName = "Bonaqu Client"_cs;
+constexpr auto AppFile = "BonaquClient"_cs;
 constexpr auto AppVersion = 7001001;
 constexpr auto AppVersionStr = "7.1.1";
 constexpr auto AppBetaVersion = false;
