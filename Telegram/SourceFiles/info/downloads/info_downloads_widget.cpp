@@ -105,6 +105,10 @@ void Widget::selectionAction(SelectionAction action) {
 
 void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 	const auto window = controller()->parentController();
+	addAction(u"Stop active downloads"_q, [] {
+		Core::App().downloadManager().loadingStopWithConfirmation();
+	});
+
 	const auto deleteAll = [=] {
 		auto &manager = Core::App().downloadManager();
 		const auto phrase = tr::lng_downloads_delete_sure_all(tr::now);
@@ -140,4 +144,3 @@ std::shared_ptr<Info::Memento> Make(not_null<UserData*> self) {
 }
 
 } // namespace Info::Downloads
-
