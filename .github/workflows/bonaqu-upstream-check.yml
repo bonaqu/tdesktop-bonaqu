@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   upstream-drift:
@@ -140,6 +141,69 @@ jobs:
           }
           EOF
           jq . upstream-status/status.json
+
+      - name: Reconcile persistent upstream drift issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRIFT: ${{ steps.drift.outputs.changed }}
+          BASE: ${{ steps.drift.outputs.base }}
+          UPSTREAM: ${{ steps.drift.outputs.upstream }}
+          COMPARE_STATUS: ${{ steps.drift.outputs.status }}
+          AHEAD: ${{ steps.drift.outputs.ahead }}
+          LATEST_TAG: ${{ steps.drift.outputs.latest_tag }}
+        run: |
+          set -euo pipefail
+
+          title='[Upstream] Telegram Desktop drift'
+          issues="$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 100 --json number,title,state)"
+          number="$(jq -r --arg title "$title" '.[] | select(.title == $title) | .number' <<<"$issues" | head -n1)"
+          state="$(jq -r --arg title "$title" '.[] | select(.title == $title) | .state' <<<"$issues" | head -n1)"
+
+          if [ "$DRIFT" = true ]; then
+            body="$(mktemp)"
+            cat > "$body" <<EOF
+          # Telegram Desktop upstream drift
+
+          Bonaqu Client's recorded upstream baseline no longer matches Telegram Desktop \`dev\`.
+
+          - Recorded baseline: \`$BASE\`
+          - Current upstream \`dev\`: \`$UPSTREAM\`
+          - Compare status: **$COMPARE_STATUS**
+          - Upstream commits after baseline: **$AHEAD**
+          - Latest stable release tag reported by GitHub: **$LATEST_TAG**
+          - Last check: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          ## Required review
+
+          Follow the stable-first policy in \`docs/upstream-sync-policy.md\`. Review upstream changes for security, login, protocol, crash and data-integrity fixes that may justify an early adoption. Otherwise update Bonaqu on the next appropriate stable Telegram Desktop base.
+
+          When upstream implements a Bonaqu feature, apply the supersession rule from \`.bonaqu/features.json\`: prefer upstream core behaviour, migrate Bonaqu settings if needed, retain only additive Bonaqu UX and remove duplicate implementation.
+
+          This is a **persistent** watcher issue. The workflow updates/reopens this same issue when drift exists and closes it when the recorded baseline matches upstream again.
+          EOF
+
+            if [ -z "$number" ]; then
+              gh issue create \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "$title" \
+                --body-file "$body" \
+                --assignee bonaqu
+            else
+              if [ "$state" != OPEN ]; then
+                gh issue reopen "$number" --repo "$GITHUB_REPOSITORY"
+              fi
+              gh issue edit "$number" \
+                --repo "$GITHUB_REPOSITORY" \
+                --body-file "$body" \
+                --add-assignee bonaqu
+            fi
+          elif [ -n "$number" ] && [ "$state" = OPEN ]; then
+            gh issue close "$number" \
+              --repo "$GITHUB_REPOSITORY" \
+              --reason completed \
+              --comment "The recorded Bonaqu upstream baseline now matches Telegram Desktop dev at \`$UPSTREAM\`. The watcher will reopen this issue if drift appears again."
+          fi
 
       - name: Upload upstream status snapshot
         uses: actions/upload-artifact@v7
