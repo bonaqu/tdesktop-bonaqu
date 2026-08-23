@@ -212,12 +212,49 @@ jobs:
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
       - name: Build Bonaqu Client
+        id: build_client
+        shell: pwsh
         run: |
-          cd /d "%TBUILD%\%REPO_NAME%\Telegram"
-          echo [BONAQU] Compilation started: %DATE% %TIME%
-          cmake --build ..\out --config Release --target Telegram --parallel
-          if errorlevel 1 exit /b %errorlevel%
-          echo [BONAQU] Compilation completed: %DATE% %TIME%
+          Set-Location (Join-Path $env:TBUILD "$env:REPO_NAME\Telegram")
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
+          Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full compiler output: $log"
+          & cmake --build '..\out' --config Release --target Telegram --parallel 2>&1 |
+            Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Host "[BONAQU] Compilation failed with exit code $exitCode."
+            exit $exitCode
+          }
+          Write-Host "[BONAQU] Compilation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+
+      - name: Summarize compile failure
+        if: failure() && steps.build_client.outcome == 'failure'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
+          @'
+          ## Bonaqu Client compile failure
+
+          The build reached the compiler/linker stage and failed. The final compiler output is included below; the complete log is attached as a workflow artifact.
+
+          ```text
+          '@ | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+          if (Test-Path $log) {
+            Get-Content $log -Tail 200 | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+          } else {
+            '[BONAQU] bonaqu-build.log was not created.' | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+          }
+          '```' | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload compile failure log
+        if: failure() && steps.build_client.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bonaqu-build-failure-${{ github.sha }}
+          path: ${{ runner.temp }}\bonaqu-build.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Report pull-request compile result
         if: github.event_name == 'pull_request'
