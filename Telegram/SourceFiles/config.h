@@ -18,23 +18,24 @@ enum {
 
 	AutoSearchTimeout = 900, // 0.9 secs
 
-	PreloadHeightsCount = 3, // when 3 screens to scroll left make a preload request
+	PreloadHeightsCount = 3,
 
 	SearchPeopleLimit = 5,
 
 	WebPageUserId = 701000,
 
-	UpdateDelayConstPart = 8 * 3600, // 8 hour min time between update check requests
-	UpdateDelayRandPart = 8 * 3600, // 8 hour max - min time between update check requests
+	UpdateDelayConstPart = 8 * 3600,
+	UpdateDelayRandPart = 8 * 3600,
 
 	WrongPasscodeTimeout = 1500,
 
-	ChoosePeerByDragTimeout = 1000, // 1 second mouse not moved to choose dialog when dragging a file
+	ChoosePeerByDragTimeout = 1000,
 };
 
 inline const char *cGUIDStr() {
 #ifndef OS_MAC_STORE
-	static const char *gGuidStr = "{87A94AB0-E370-4cde-98D3-ACC110C5967D}";
+	// Separate Bonaqu Client IPC/runtime identity from official Telegram Desktop.
+	static const char *gGuidStr = "{6404EA08-592A-4748-BA81-E5AB0D58951A}";
 #else // OS_MAC_STORE
 	static const char *gGuidStr = "{E51FB841-8C0B-4EF9-9E9E-5A0078567627}";
 #endif // OS_MAC_STORE
@@ -89,11 +90,10 @@ constexpr auto ApiHash = "344583e45741c457fe1862106095a5eb";
 
 #if Q_BYTE_ORDER == Q_BIG_ENDIAN
 #error "Only little endian is supported!"
-#endif // Q_BYTE_ORDER == Q_BIG_ENDIAN
+#endif // Q_BYTE_ORDER
 
 #if (TDESKTOP_ALPHA_VERSION != 0)
 
-// Private key for downloading closed alphas.
 #include "../../../DesktopPrivate/alpha_private.h"
 
 #else
