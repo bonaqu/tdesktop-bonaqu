@@ -1,4 +1,4 @@
-name: Bonaqu Desktop Windows x64
+name: Bonaqu Client Windows x64
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   windows-x64:
-    name: Windows x64 Release (Test API)
+    name: Windows x64 Release (Personal API)
     runs-on: windows-latest
     timeout-minutes: 300
 
@@ -33,12 +33,31 @@ jobs:
       REPO_NAME: tdesktop-bonaqu
       PREPARE_PATH: Telegram/build/prepare/prepare.py
       LIBRARIES_PATH: ${{ github.workspace }}\TBuild\Libraries\win64
+      BONAQU_API_ID: ${{ secrets.BONAQU_TDESKTOP_API_ID }}
+      BONAQU_API_HASH: ${{ secrets.BONAQU_TDESKTOP_API_HASH }}
 
     defaults:
       run:
         shell: cmd
 
     steps:
+      - name: Validate Bonaqu Telegram API credentials
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BONAQU_API_ID)) {
+            throw 'Missing GitHub Actions secret BONAQU_TDESKTOP_API_ID.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:BONAQU_API_HASH)) {
+            throw 'Missing GitHub Actions secret BONAQU_TDESKTOP_API_HASH.'
+          }
+          if ($env:BONAQU_API_ID -notmatch '^\d+$') {
+            throw 'BONAQU_TDESKTOP_API_ID must contain only digits.'
+          }
+          if ($env:BONAQU_API_HASH -notmatch '^[0-9a-fA-F]{32}$') {
+            throw 'BONAQU_TDESKTOP_API_HASH must be a 32-character hexadecimal API hash.'
+          }
+          Write-Host '[BONAQU] Personal Telegram API credentials are configured.'
+
       - name: Prepare short TBuild path
         run: |
           if not exist "%USERPROFILE%\TBuild\Libraries" mkdir "%USERPROFILE%\TBuild\Libraries"
@@ -50,7 +69,7 @@ jobs:
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
-      - name: Validate WEB Proxy source contract
+      - name: Validate WEB Proxy and Bonaqu source contract
         shell: pwsh
         run: |
           $root = Join-Path $env:TBUILD $env:REPO_NAME
@@ -73,8 +92,11 @@ jobs:
             throw 'WEB Proxy data model/validation was not found in mtproto_proxy_data.cpp'
           }
           $version = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\core\version.h')
-          if ($version -notmatch 'AppName = "Bonaqu Desktop"') {
-            throw 'Bonaqu Desktop runtime branding is missing.'
+          if ($version -notmatch 'AppName = "Bonaqu Client"') {
+            throw 'Bonaqu Client runtime branding is missing.'
+          }
+          if ($version -notmatch 'AppFile = "BonaquClient"') {
+            throw 'Bonaqu Client executable identity is missing.'
           }
 
       - name: Read SDK and build cache key
@@ -158,12 +180,13 @@ jobs:
           find "$LIBRARIES_PATH" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
           echo "[BONAQU] Cleanup completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
-      - name: Configure Bonaqu Desktop
+      - name: Configure Bonaqu Client
         run: |
           cd /d "%TBUILD%\%REPO_NAME%\Telegram"
           echo [BONAQU] CMake configure started: %DATE% %TIME%
           call configure.bat x64 ^
-            -D TDESKTOP_API_TEST=ON ^
+            -D TDESKTOP_API_ID=%BONAQU_API_ID% ^
+            -D TDESKTOP_API_HASH=%BONAQU_API_HASH% ^
             -D CMAKE_CONFIGURATION_TYPES=Release ^
             -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
             -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
@@ -172,7 +195,7 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
-      - name: Build Bonaqu Desktop
+      - name: Build Bonaqu Client
         run: |
           cd /d "%TBUILD%\%REPO_NAME%\Telegram"
           echo [BONAQU] Compilation started: %DATE% %TIME%
@@ -180,18 +203,18 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] Compilation completed: %DATE% %TIME%
 
-      - name: Package isolated Bonaqu test build
+      - name: Package isolated Bonaqu Client build
         shell: pwsh
         run: |
           $out = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release"
-          $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquDesktop-Windows-x64-TestAPI'
+          $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquClient-Windows-x64'
           New-Item -ItemType Directory -Force -Path $package | Out-Null
           $telegram = Join-Path $out 'Telegram.exe'
           if (-not (Test-Path $telegram)) {
             throw "Telegram.exe was not produced at $telegram"
           }
 
-          $exe = Join-Path $package 'BonaquDesktop.exe'
+          $exe = Join-Path $package 'BonaquClient.exe'
           Copy-Item $telegram $exe
 
           @'
@@ -199,47 +222,48 @@ jobs:
           setlocal
           set "ROOT=%~dp0"
           if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
-          start "Bonaqu Desktop" "%ROOT%BonaquDesktop.exe" -workdir "%ROOT%BonaquProfile" -noupdate
-          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Desktop.cmd')
+          start "Bonaqu Client" "%ROOT%BonaquClient.exe" -workdir "%ROOT%BonaquProfile" -noupdate
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Client.cmd')
 
           @'
           @echo off
           setlocal
           set "ROOT=%~dp0"
           if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
-          start "Bonaqu Desktop Debug" "%ROOT%BonaquDesktop.exe" -workdir "%ROOT%BonaquProfile" -noupdate -debug
-          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Desktop-Debug.cmd')
+          start "Bonaqu Client Debug" "%ROOT%BonaquClient.exe" -workdir "%ROOT%BonaquProfile" -noupdate -debug
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Client-Debug.cmd')
 
           $sha256 = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
           @"
-          Bonaqu Desktop experimental Windows x64 build
+          Bonaqu Client experimental Windows x64 build
           Source commit: $env:GITHUB_SHA
+          Upstream base: Telegram Desktop 7.1.1
+          API application title: BonaquDesktop26
+          API application short name: bonaqu26
+          Telegram API mode: personal api_id/api_hash from GitHub Actions Secrets
           Build mode: Release
-          Telegram API mode: TDESKTOP_API_TEST=ON (TEST ONLY)
           Auto-update: disabled
           Crash reporting: disabled
           Executable SHA-256: $sha256
 
           IMPORTANT:
-          Start the client with Start-Bonaqu-Desktop.cmd. It forces an isolated
-          BonaquProfile working directory next to the executable so this experimental
-          build does not reuse your normal Telegram Desktop tdata profile.
+          Start the portable build with Start-Bonaqu-Client.cmd. It forces the isolated
+          BonaquProfile working directory next to the executable, so this fork never
+          reuses the normal Telegram Desktop tdata profile.
 
-          Start-Bonaqu-Desktop-Debug.cmd enables Telegram debug logging for diagnosis.
-          Do not publish logs until they have been checked for private information.
+          Start-Bonaqu-Client-Debug.cmd enables Telegram debug logging for diagnosis.
+          Never publish debug logs before checking them for private information.
 
-          This build uses Telegram Desktop's test-only API credentials and is intended
-          only for development/testing of the WEB Proxy implementation. Telegram's
-          own documentation warns that TEST ONLY credentials are heavily limited and
-          are not suitable for deployment.
+          The api_hash is never written into this package by this script and is not
+          printed to the GitHub Actions log by the workflow.
           "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
 
-          "$sha256  BonaquDesktop.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
+          "$sha256  BonaquClient.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
 
-      - name: Upload Bonaqu Desktop artifact
+      - name: Upload Bonaqu Client artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Bonaqu-Desktop-Windows-x64-TestAPI-${{ github.sha }}
-          path: BonaquDesktop-Windows-x64-TestAPI\
+          name: Bonaqu-Client-Windows-x64-${{ github.sha }}
+          path: BonaquClient-Windows-x64\
           if-no-files-found: error
           retention-days: 14
