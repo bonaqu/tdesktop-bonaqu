@@ -132,12 +132,78 @@ jobs:
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> "$GITHUB_ENV"
           echo "Required SDK: $SDK"
 
+      # VS 2026 ships ATL for its current toolset, while Bonaqu intentionally
+      # selects v143 14.44 for Telegram Desktop compatibility. A cold Release
+      # dependency build needs matching ATL to build breakpad dump_syms.
+      - name: Ensure Visual Studio 14.44 ATL component
+        shell: pwsh
+        run: |
+          $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installer 'vswhere.exe'
+          $setup = Join-Path $installer 'setup.exe'
+          if (-not (Test-Path $vswhere) -or -not (Test-Path $setup)) {
+            throw "Visual Studio Installer is incomplete at $installer."
+          }
+
+          $toolsComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64'
+          $atlComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL'
+          $path = @(& $vswhere -latest -products '*' -requires $toolsComponent -property installationPath)[0]
+          if (-not $path) {
+            throw "No Visual Studio instance provides $toolsComponent."
+          }
+
+          $toolset = Get-ChildItem (Join-Path $path 'VC\Tools\MSVC') -Directory `
+            | Where-Object { $_.Name -like '14.44.*' } `
+            | Sort-Object Name -Descending `
+            | Select-Object -First 1
+          if (-not $toolset) {
+            throw 'The selected Visual Studio instance has no 14.44 toolset.'
+          }
+
+          $header = Join-Path $toolset.FullName 'atlmfc\include\atlbase.h'
+          if (Test-Path $header) {
+            Write-Host "[BONAQU] ATL is already installed for $($toolset.Name)."
+            exit 0
+          }
+
+          Write-Host "[BONAQU] Installing $atlComponent into $path"
+          $process = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            'modify',
+            '--installPath', "`"$path`"",
+            '--add', $atlComponent,
+            '--quiet', '--norestart', '--nocache'
+          )
+          if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Visual Studio Installer exited with $($process.ExitCode)."
+          }
+          if (-not (Test-Path $header)) {
+            throw "$atlComponent completed without installing $header."
+          }
+          Write-Host "[BONAQU] Matching ATL installed: $header"
+
       - name: Configure MSVC environment
-        uses: Eden-CI/msvc-dev-cmd@master
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
         with:
           arch: x64
           sdk: ${{ env.SDK }}
           toolset: '14.44'
+
+      - name: Verify Visual Studio ATL component
+        shell: pwsh
+        run: |
+          $atlInclude = Join-Path $env:VCToolsInstallDir 'atlmfc\include'
+          $header = Join-Path $atlInclude 'atlbase.h'
+          $comHeader = Join-Path $atlInclude 'atlcomcli.h'
+          if (-not (Test-Path $header)) {
+            throw "The selected toolset has no ATL header at $header."
+          }
+          if (-not (Test-Path $comHeader)) {
+            throw "The selected toolset has no ATL COM header at $comHeader."
+          }
+          if (($env:INCLUDE -split ';') -notcontains $atlInclude) {
+            throw "The selected toolset did not add $atlInclude to INCLUDE."
+          }
+          Write-Host "[BONAQU] ATL verification passed: $atlInclude"
 
       - name: Configure NuGet sources
         run: |
