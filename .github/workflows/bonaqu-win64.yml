@@ -176,12 +176,22 @@ jobs:
             bonaqu-${{ runner.OS }}-x64-qt-release-v2-
 
       - name: Prepare Telegram Desktop Release dependencies
+        id: prepare_release_dependencies
+        shell: pwsh
         run: |
-          cd /d "%TBUILD%\%REPO_NAME%"
-          echo [BONAQU] Release dependency preparation started: %DATE% %TIME%
-          call Telegram\build\prepare\win.bat silent
-          if errorlevel 1 exit /b %errorlevel%
-          echo [BONAQU] Release dependency preparation completed: %DATE% %TIME%
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log'
+          Set-Location $root
+          Write-Host "[BONAQU] Release dependency preparation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full dependency output: $log"
+          & cmd.exe /d /s /c 'call Telegram\build\prepare\win.bat' 2>&1 |
+            Tee-Object -FilePath $log
+          $prepareExit = $LASTEXITCODE
+          if ($prepareExit -ne 0) {
+            Write-Host "[BONAQU] Release dependency preparation failed with exit code $prepareExit. Preserving $log"
+            exit $prepareExit
+          }
+          Write-Host "[BONAQU] Release dependency preparation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
 
       - name: Validate required Release dependencies
         shell: pwsh
@@ -228,12 +238,14 @@ jobs:
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
       - name: Build Bonaqu Client
+        id: build_client
         shell: pwsh
         run: |
           $source = Join-Path (Join-Path $env:TBUILD $env:REPO_NAME) 'Telegram'
           $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
           Set-Location $source
           Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full compiler output: $log"
           & cmake --build '..\out' --config Release --target Telegram --parallel 2>&1 |
             Tee-Object -FilePath $log
           $buildExit = $LASTEXITCODE
@@ -243,25 +255,32 @@ jobs:
           }
           Write-Host "[BONAQU] Compilation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
 
-      - name: Show compiler failure tail
+      - name: Show failure diagnostics
         if: failure()
         shell: pwsh
         run: |
-          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
-          if (Test-Path $log) {
-            Write-Host '========== BONAQU BUILD LOG: LAST 300 LINES =========='
-            Get-Content -Path $log -Tail 300
-            Write-Host '========== END BONAQU BUILD LOG TAIL =========='
-          } else {
-            Write-Warning "Compiler log was not created at $log. The failure happened before or outside the build command."
+          $logs = @(
+            @{ Name = 'DEPENDENCY PREPARE'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log') },
+            @{ Name = 'CLIENT BUILD'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-build.log') }
+          )
+          foreach ($entry in $logs) {
+            if (Test-Path $entry.Path) {
+              Write-Host "========== BONAQU $($entry.Name) LOG: LAST 300 LINES =========="
+              Get-Content -Path $entry.Path -Tail 300
+              Write-Host "========== END BONAQU $($entry.Name) LOG TAIL =========="
+            } else {
+              Write-Warning "$($entry.Name) log was not created at $($entry.Path)."
+            }
           }
 
-      - name: Upload compiler failure log
+      - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: Bonaqu-Client-build-log-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}\bonaqu-build.log
+          name: Bonaqu-Client-failure-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}\bonaqu-dependency-prepare.log
+            ${{ runner.temp }}\bonaqu-build.log
           if-no-files-found: warn
           retention-days: 7
 
