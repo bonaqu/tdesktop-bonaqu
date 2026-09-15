@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout Bonaqu Client
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Parse PowerShell build script
         shell: pwsh
@@ -44,7 +44,7 @@ jobs:
           Write-Host '[BONAQU] PowerShell build script parsed successfully.'
 
       - name: Configure MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
         with:
           arch: x64
 
@@ -100,7 +100,7 @@ jobs:
           "@ | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
 
       - name: Upload optional worker artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bonaqu-Local-Transcription-Worker-Windows-x64-${{ github.sha }}
           path: artifacts\BonaquLocalTranscription\
