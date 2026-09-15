@@ -84,6 +84,30 @@ jobs:
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
+      # TBuild intentionally lives behind the short USERPROFILE path used by upstream.
+      # Release dependency preparation is large enough that keeping Telegram's huge
+      # object tree on the same physical drive can exhaust it. Redirect only /out
+      # back to the mostly-empty Actions workspace drive so dependencies and client
+      # object files no longer compete for the same free space.
+      - name: Place client build output on workspace disk
+        shell: pwsh
+        run: |
+          $repoRoot = Join-Path $env:TBUILD $env:REPO_NAME
+          $outLink = Join-Path $repoRoot 'out'
+          $outTarget = Join-Path $env:GITHUB_WORKSPACE 'BonaquBuildOut'
+          if (Test-Path $outLink) {
+            throw "Unexpected pre-existing build output path: $outLink"
+          }
+          if (Test-Path $outTarget) {
+            Remove-Item -Recurse -Force $outTarget
+          }
+          New-Item -ItemType Directory -Force -Path $outTarget | Out-Null
+          & cmd.exe /d /s /c "mklink /D `"$outLink`" `"$outTarget`""
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLink)) {
+            throw "Could not redirect $outLink to $outTarget"
+          }
+          Write-Host "[BONAQU] Client output redirected: $outLink -> $outTarget"
+
       - name: Validate WEB Proxy and Bonaqu source contract
         shell: pwsh
         run: |
@@ -278,7 +302,9 @@ jobs:
       - name: Report disk space after dependencies
         shell: pwsh
         run: |
-          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "=== AFTER DEPENDENCY PREPARATION: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Set-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
 
       - name: Free up dependency build files
         shell: bash
@@ -286,6 +312,24 @@ jobs:
           echo "[BONAQU] Cleanup started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           find "$LIBRARIES_PATH" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
           echo "[BONAQU] Cleanup completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Remove Debug-only dependency trees
+        shell: pwsh
+        run: |
+          $debugDirs = @(Get-ChildItem -LiteralPath $env:LIBRARIES_PATH -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Debug' } |
+            Sort-Object { $_.FullName.Length } -Descending)
+          $before = $debugDirs.Count
+          foreach ($dir in $debugDirs) {
+            if (Test-Path -LiteralPath $dir.FullName) {
+              Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host "[BONAQU] Removed $before Debug-only dependency directories."
+
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== AFTER DEPENDENCY CLEANUP: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
 
       - name: Configure Bonaqu Client
         run: |
@@ -303,6 +347,13 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
+      - name: Report disk space before client build
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== BEFORE CLIENT BUILD: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
       - name: Build Bonaqu Client
         id: build_client
         shell: pwsh
@@ -312,7 +363,7 @@ jobs:
           Set-Location $source
           Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
           Write-Host "[BONAQU] Full compiler output: $log"
-          & cmake --build '..\out' --config Release --target Telegram --parallel 2>&1 |
+          & cmake --build '..\out' --config Release --target Telegram --parallel 2 2>&1 |
             Tee-Object -FilePath $log
           $buildExit = $LASTEXITCODE
           if ($buildExit -ne 0) {
@@ -327,7 +378,8 @@ jobs:
         run: |
           $logs = @(
             @{ Name = 'DEPENDENCY PREPARE'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log') },
-            @{ Name = 'CLIENT BUILD'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-build.log') }
+            @{ Name = 'CLIENT BUILD'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-build.log') },
+            @{ Name = 'DISK REPORT'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt') }
           )
           foreach ($entry in $logs) {
             if (Test-Path $entry.Path) {
@@ -347,6 +399,7 @@ jobs:
           path: |
             ${{ runner.temp }}\bonaqu-dependency-prepare.log
             ${{ runner.temp }}\bonaqu-build.log
+            ${{ runner.temp }}\bonaqu-disk-report.txt
           if-no-files-found: warn
           retention-days: 7
 
