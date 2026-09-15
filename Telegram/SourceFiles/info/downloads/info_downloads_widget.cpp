@@ -106,7 +106,7 @@ void Widget::selectionAction(SelectionAction action) {
 void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 	const auto window = controller()->parentController();
 	addAction(u"Stop active downloads"_q, [] {
-		Core::App().downloadManager().loadingStopWithConfirmation();
+		Core::App().downloadManager().loadingStopWithConfirmation(nullptr);
 	});
 
 	const auto deleteAll = [=] {
