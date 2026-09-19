@@ -1,19 +1,18 @@
-#define MyAppShortName "Telegram"
-#define MyAppName "Telegram Desktop"
-#define MyAppPublisher "Telegram FZ-LLC"
-#define MyAppURL "https://desktop.telegram.org"
-#define MyAppExeName "Telegram.exe"
-#define MyAppId "53F49750-6209-4FBF-9CA8-7A333C87D1ED"
+#define MyAppShortName "Bonaqu Client"
+#define MyAppName "Bonaqu Client"
+#define MyAppPublisher "bonaqu"
+#define MyAppURL "https://github.com/bonaqu/tdesktop-bonaqu"
+#define MyAppExeName "BonaquClient.exe"
+#define MyAppId "D4195297-1CA0-47BB-9EB9-8239E93692A9"
 #define CurrentYear GetDateTimeString('yyyy','','')
 
 [Setup]
-; NOTE: The value of AppId uniquely identifies this application.
-; Do not use the same AppId value in installers for other applications.
-; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
+; Bonaqu Client intentionally uses its own AppId so Windows treats it as a
+; separate application from official Telegram Desktop.
 AppId={{{#MyAppId}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppCopyright={#MyAppPublisher} 2014-{#CurrentYear}
+AppCopyright=Derived from Telegram Desktop (C) 2014-{#CurrentYear}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
@@ -24,7 +23,7 @@ AllowNoIcons=yes
 OutputDir={#ReleasePath}
 SetupIconFile={#SourcePath}..\Resources\art\icon256.ico
 UninstallDisplayName={#MyAppName}
-UninstallDisplayIcon={app}\Telegram.exe
+UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
 DisableStartupPrompt=yes
@@ -38,11 +37,11 @@ SignTool=sha256
 
 #ifndef MyOutputBaseFilename
   #if MyBuildTarget == "winarm"
-    #define MyOutputBaseFilename "tsetup-arm64." + MyAppVersionFull
+    #define MyOutputBaseFilename "bonaqu-client-setup-arm64." + MyAppVersionFull
   #elif MyBuildTarget == "win64"
-    #define MyOutputBaseFilename "tsetup-x64." + MyAppVersionFull
+    #define MyOutputBaseFilename "bonaqu-client-setup-x64." + MyAppVersionFull
   #else
-    #define MyOutputBaseFilename "tsetup." + MyAppVersionFull
+    #define MyOutputBaseFilename "bonaqu-client-setup." + MyAppVersionFull
   #endif
 #endif
 OutputBaseFilename={#MyOutputBaseFilename}
@@ -78,8 +77,9 @@ Name: "ua";      MessagesFile: "compiler:Languages\Ukrainian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "{#ReleasePath}\Telegram.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#ReleasePath}\Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Upstream target is still built as Telegram.exe; the installer gives the fork
+; its own filename on disk without changing the upstream CMake target name.
+Source: "{#ReleasePath}\Telegram.exe"; DestDir: "{app}"; DestName: "BonaquClient.exe"; Flags: ignoreversion
 #if MyBuildTarget != "winarm"
 Source: "{#ReleasePath}\{#ModulesFolder}\d3d\d3dcompiler_47.dll"; DestDir: "{app}\{#ModulesFolder}\d3d"; Flags: ignoreversion
 #endif
