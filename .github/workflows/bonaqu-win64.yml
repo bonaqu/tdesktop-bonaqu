@@ -84,6 +84,30 @@ jobs:
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
+      # TBuild intentionally lives behind the short USERPROFILE path used by upstream.
+      # Release dependency preparation is large enough that keeping Telegram's huge
+      # object tree on the same physical drive can exhaust it. Redirect only /out
+      # back to the mostly-empty Actions workspace drive so dependencies and client
+      # object files no longer compete for the same free space.
+      - name: Place client build output on workspace disk
+        shell: pwsh
+        run: |
+          $repoRoot = Join-Path $env:TBUILD $env:REPO_NAME
+          $outLink = Join-Path $repoRoot 'out'
+          $outTarget = Join-Path $env:GITHUB_WORKSPACE 'BonaquBuildOut'
+          if (Test-Path $outLink) {
+            throw "Unexpected pre-existing build output path: $outLink"
+          }
+          if (Test-Path $outTarget) {
+            Remove-Item -Recurse -Force $outTarget
+          }
+          New-Item -ItemType Directory -Force -Path $outTarget | Out-Null
+          & cmd.exe /d /s /c "mklink /D `"$outLink`" `"$outTarget`""
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLink)) {
+            throw "Could not redirect $outLink to $outTarget"
+          }
+          Write-Host "[BONAQU] Client output redirected: $outLink -> $outTarget"
+
       - name: Validate WEB Proxy and Bonaqu source contract
         shell: pwsh
         run: |
@@ -132,12 +156,78 @@ jobs:
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> "$GITHUB_ENV"
           echo "Required SDK: $SDK"
 
+      # VS 2026 ships ATL for its current toolset, while Bonaqu intentionally
+      # selects v143 14.44 for Telegram Desktop compatibility. A cold Release
+      # dependency build needs matching ATL to build breakpad dump_syms.
+      - name: Ensure Visual Studio 14.44 ATL component
+        shell: pwsh
+        run: |
+          $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installer 'vswhere.exe'
+          $setup = Join-Path $installer 'setup.exe'
+          if (-not (Test-Path $vswhere) -or -not (Test-Path $setup)) {
+            throw "Visual Studio Installer is incomplete at $installer."
+          }
+
+          $toolsComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64'
+          $atlComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL'
+          $path = @(& $vswhere -latest -products '*' -requires $toolsComponent -property installationPath)[0]
+          if (-not $path) {
+            throw "No Visual Studio instance provides $toolsComponent."
+          }
+
+          $toolset = Get-ChildItem (Join-Path $path 'VC\Tools\MSVC') -Directory `
+            | Where-Object { $_.Name -like '14.44.*' } `
+            | Sort-Object Name -Descending `
+            | Select-Object -First 1
+          if (-not $toolset) {
+            throw 'The selected Visual Studio instance has no 14.44 toolset.'
+          }
+
+          $header = Join-Path $toolset.FullName 'atlmfc\include\atlbase.h'
+          if (Test-Path $header) {
+            Write-Host "[BONAQU] ATL is already installed for $($toolset.Name)."
+            exit 0
+          }
+
+          Write-Host "[BONAQU] Installing $atlComponent into $path"
+          $process = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            'modify',
+            '--installPath', "`"$path`"",
+            '--add', $atlComponent,
+            '--quiet', '--norestart', '--nocache'
+          )
+          if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Visual Studio Installer exited with $($process.ExitCode)."
+          }
+          if (-not (Test-Path $header)) {
+            throw "$atlComponent completed without installing $header."
+          }
+          Write-Host "[BONAQU] Matching ATL installed: $header"
+
       - name: Configure MSVC environment
-        uses: Eden-CI/msvc-dev-cmd@master
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
         with:
           arch: x64
           sdk: ${{ env.SDK }}
           toolset: '14.44'
+
+      - name: Verify Visual Studio ATL component
+        shell: pwsh
+        run: |
+          $atlInclude = Join-Path $env:VCToolsInstallDir 'atlmfc\include'
+          $header = Join-Path $atlInclude 'atlbase.h'
+          $comHeader = Join-Path $atlInclude 'atlcomcli.h'
+          if (-not (Test-Path $header)) {
+            throw "The selected toolset has no ATL header at $header."
+          }
+          if (-not (Test-Path $comHeader)) {
+            throw "The selected toolset has no ATL COM header at $comHeader."
+          }
+          if (($env:INCLUDE -split ';') -notcontains $atlInclude) {
+            throw "The selected toolset did not add $atlInclude to INCLUDE."
+          }
+          Write-Host "[BONAQU] ATL verification passed: $atlInclude"
 
       - name: Configure NuGet sources
         run: |
@@ -152,7 +242,7 @@ jobs:
           restore-keys: |
             bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-
 
-      - name: Cache prepared libraries
+      - name: Cache prepared Release libraries
         uses: actions/cache@v6
         with:
           path: |
@@ -161,32 +251,60 @@ jobs:
             !${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
             ${{ env.LIBRARIES_PATH }}\cache_keys\*
             !${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
-          key: bonaqu-${{ runner.OS }}-x64-libs-v2-${{ env.CACHE_KEY }}
+          key: bonaqu-${{ runner.OS }}-x64-libs-v3-release-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-${{ runner.OS }}-x64-libs-v2-
+            bonaqu-${{ runner.OS }}-x64-libs-v3-release-
 
-      - name: Cache Qt
+      - name: Cache Release Qt
         uses: actions/cache@v6
         with:
           path: |
             ${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
             ${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
-          key: bonaqu-${{ runner.OS }}-x64-qt-${{ env.CACHE_KEY }}
+          key: bonaqu-${{ runner.OS }}-x64-qt-release-v2-${{ env.CACHE_KEY }}
           restore-keys: |
-            bonaqu-${{ runner.OS }}-x64-qt-
+            bonaqu-${{ runner.OS }}-x64-qt-release-v2-
 
-      - name: Prepare Telegram Desktop dependencies
+      - name: Prepare Telegram Desktop Release dependencies
+        id: prepare_release_dependencies
+        shell: pwsh
         run: |
-          cd /d "%TBUILD%\%REPO_NAME%"
-          echo [BONAQU] Dependency preparation started: %DATE% %TIME%
-          call Telegram\build\prepare\win.bat skip-release
-          if errorlevel 1 exit /b %errorlevel%
-          echo [BONAQU] Dependency preparation completed: %DATE% %TIME%
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log'
+          Set-Location $root
+          Write-Host "[BONAQU] Release dependency preparation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full dependency output: $log"
+          & cmd.exe /d /s /c 'call Telegram\build\prepare\win.bat' 2>&1 |
+            Tee-Object -FilePath $log
+          $prepareExit = $LASTEXITCODE
+          if ($prepareExit -ne 0) {
+            Write-Host "[BONAQU] Release dependency preparation failed with exit code $prepareExit. Preserving $log"
+            exit $prepareExit
+          }
+          Write-Host "[BONAQU] Release dependency preparation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+
+      - name: Validate required Release dependencies
+        shell: pwsh
+        run: |
+          $required = @(
+            (Join-Path $env:LIBRARIES_PATH 'tg_angle\out\Release\tg_angle.lib'),
+            (Join-Path $env:LIBRARIES_PATH 'libavif\Release\avif.lib')
+          )
+          $missing = @($required | Where-Object { -not (Test-Path $_) })
+          if ($missing.Count -gt 0) {
+            Write-Host '[BONAQU] Required Release dependencies are missing:'
+            $missing | ForEach-Object { Write-Host "  - $_" }
+            throw 'Release dependency preparation is incomplete. Do not continue to the Telegram linker.'
+          }
+          Write-Host '[BONAQU] Release dependency guard passed:'
+          $required | ForEach-Object { Write-Host "  - $_" }
 
       - name: Report disk space after dependencies
         shell: pwsh
         run: |
-          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "=== AFTER DEPENDENCY PREPARATION: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Set-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
 
       - name: Free up dependency build files
         shell: bash
@@ -194,6 +312,24 @@ jobs:
           echo "[BONAQU] Cleanup started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           find "$LIBRARIES_PATH" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
           echo "[BONAQU] Cleanup completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Remove Debug-only dependency trees
+        shell: pwsh
+        run: |
+          $debugDirs = @(Get-ChildItem -LiteralPath $env:LIBRARIES_PATH -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Debug' } |
+            Sort-Object { $_.FullName.Length } -Descending)
+          $before = $debugDirs.Count
+          foreach ($dir in $debugDirs) {
+            if (Test-Path -LiteralPath $dir.FullName) {
+              Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host "[BONAQU] Removed $before Debug-only dependency directories."
+
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== AFTER DEPENDENCY CLEANUP: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
 
       - name: Configure Bonaqu Client
         run: |
@@ -211,13 +347,61 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
-      - name: Build Bonaqu Client
+      - name: Report disk space before client build
+        shell: pwsh
         run: |
-          cd /d "%TBUILD%\%REPO_NAME%\Telegram"
-          echo [BONAQU] Compilation started: %DATE% %TIME%
-          cmake --build ..\out --config Release --target Telegram --parallel
-          if errorlevel 1 exit /b %errorlevel%
-          echo [BONAQU] Compilation completed: %DATE% %TIME%
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== BEFORE CLIENT BUILD: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
+      - name: Build Bonaqu Client
+        id: build_client
+        shell: pwsh
+        run: |
+          $source = Join-Path (Join-Path $env:TBUILD $env:REPO_NAME) 'Telegram'
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
+          Set-Location $source
+          Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full compiler output: $log"
+          & cmake --build '..\out' --config Release --target Telegram --parallel 2 2>&1 |
+            Tee-Object -FilePath $log
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            Write-Host "[BONAQU] Compilation failed with exit code $buildExit. Preserving $log"
+            exit $buildExit
+          }
+          Write-Host "[BONAQU] Compilation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+
+      - name: Show failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $logs = @(
+            @{ Name = 'DEPENDENCY PREPARE'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log') },
+            @{ Name = 'CLIENT BUILD'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-build.log') },
+            @{ Name = 'DISK REPORT'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt') }
+          )
+          foreach ($entry in $logs) {
+            if (Test-Path $entry.Path) {
+              Write-Host "========== BONAQU $($entry.Name) LOG: LAST 300 LINES =========="
+              Get-Content -Path $entry.Path -Tail 300
+              Write-Host "========== END BONAQU $($entry.Name) LOG TAIL =========="
+            } else {
+              Write-Warning "$($entry.Name) log was not created at $($entry.Path)."
+            }
+          }
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Bonaqu-Client-failure-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}\bonaqu-dependency-prepare.log
+            ${{ runner.temp }}\bonaqu-build.log
+            ${{ runner.temp }}\bonaqu-disk-report.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Report pull-request compile result
         if: github.event_name == 'pull_request'
