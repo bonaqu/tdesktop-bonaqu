@@ -1,99 +1,137 @@
-# [Telegram Desktop][telegram_desktop] – Official Messenger
+# Bonaqu Client
 
-This is the complete source code and the build instructions for the official [Telegram][telegram] messenger desktop client, based on the [Telegram API][telegram_api] and the [MTProto][telegram_proto] secure protocol.
+**Bonaqu Client** is a personal experimental **unofficial Telegram client** derived from [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) and maintained by **bonaqu**.
 
-[![Version](https://badge.fury.io/gh/telegramdesktop%2Ftdesktop.svg)](https://github.com/telegramdesktop/tdesktop/releases)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Windows./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/MacOS./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Build Status](https://github.com/telegramdesktop/tdesktop/workflows/Linux./badge.svg)](https://github.com/telegramdesktop/tdesktop/actions)
-[![Built with Depot](https://img.shields.io/badge/Built%20with-Depot.dev-46A75A)](https://depot.dev)
+It keeps Telegram Desktop's protocol implementation and core UX close to upstream while adding Bonaqu-specific Windows identity, isolated profiles, WEB Proxy testing support and selected local power-user features.
 
-[![Preview of Telegram Desktop][preview_image]][preview_image_url]
+> **Important:** Bonaqu Client is an independent third-party client that uses the Telegram API. It is not an official Telegram application and is not affiliated with or endorsed by Telegram Messenger Inc. / Telegram FZ-LLC.
 
-The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
+## Current baseline
 
-## Supported systems
+- Recorded upstream baseline: Telegram Desktop **7.1.1** (`61fab838d5fd8e8de8d513fb130ecda4e0cda8b9`).
+- Primary target: **Windows x64**.
+- Telegram API application title: **BonaquDesktop26**.
+- Telegram API application short name: **bonaqu26**.
+- Builds use the maintainer's own `api_id` and `api_hash` through GitHub Actions Secrets; TEST ONLY credentials are no longer used.
+- WEB Proxy implementation: upstream Telegram Desktop implementation, not a protocol rewrite.
+- Recorded upstream SHA: [`.bonaqu/upstream-base.txt`](.bonaqu/upstream-base.txt).
 
-The latest version is available for
+## Independent Windows identity
 
-* [Windows 7 and above (64 bit)](https://telegram.org/dl/desktop/win64) ([portable](https://telegram.org/dl/desktop/win64_portable))
-* [Windows 7 and above (32 bit)](https://telegram.org/dl/desktop/win) ([portable](https://telegram.org/dl/desktop/win_portable))
-* [macOS 10.13 and above](https://telegram.org/dl/desktop/mac)
-* [Linux static build for 64 bit](https://telegram.org/dl/desktop/linux)
-* [Snap](https://snapcraft.io/telegram-desktop)
-* [Flatpak](https://flathub.org/apps/details/org.telegram.desktop)
+Bonaqu Client is intentionally separated from an installed copy of official Telegram Desktop:
 
-## Old system versions
+- product/application name: `Bonaqu Client`;
+- executable in packaged builds: `BonaquClient.exe`;
+- independent Windows installer AppId;
+- independent runtime/IPC GUID;
+- installer data directory: `%APPDATA%\Bonaqu Client`;
+- portable builds launch with their own `BonaquProfile` working directory;
+- Windows executable metadata identifies the product as Bonaqu Client.
 
-Version **4.9.9** was the last that supports older systems
+This allows Bonaqu Client and official Telegram Desktop to coexist without deliberately sharing the same local `tdata` profile or installer identity.
 
-* [macOS 10.12](https://updates.tdesktop.com/tmac/tsetup.4.9.9.dmg)
-* [Linux with glibc < 2.28 static build](https://updates.tdesktop.com/tlinux/tsetup.4.9.9.tar.xz)
+## Features
 
-Version **2.4.4** was the last that supports older systems
+Currently implemented Bonaqu-specific functionality includes:
 
-* [OS X 10.10 and 10.11](https://updates.tdesktop.com/tosx/tsetup-osx.2.4.4.dmg)
-* [Linux static build for 32 bit](https://updates.tdesktop.com/tlinux32/tsetup32.2.4.4.tar.xz)
+- **WEB Proxy** support inherited from the current Telegram Desktop development implementation;
+- **isolated portable profile** launcher;
+- **Bonaqu Profile Manager** for creating and launching multiple independent local profiles with separate work directories;
+- dedicated Windows application/installer/runtime identity;
+- Bonaqu-branded About dialog with upstream attribution and source link;
+- Release build with automatic upstream Telegram updates disabled so the fork does not accidentally replace itself with an official build;
+- crash reporting disabled in the experimental build;
+- explicit build progress and dependency-cache handling in GitHub Actions.
 
-Version **1.8.15** was the last that supports older systems
+See [`docs/bonaqu-features.md`](docs/bonaqu-features.md) for the feature policy and roadmap.
 
-* [Windows XP and Vista](https://updates.tdesktop.com/tsetup/tsetup.1.8.15.exe) ([portable](https://updates.tdesktop.com/tsetup/tportable.1.8.15.zip))
-* [OS X 10.8 and 10.9](https://updates.tdesktop.com/tmac/tsetup.1.8.15.dmg)
-* [OS X 10.6 and 10.7](https://updates.tdesktop.com/tmac32/tsetup32.1.8.15.dmg)
+## Premium-like features: project policy
 
-## Third-party
+Bonaqu Client may add **local alternatives** to convenience features, for example multi-profile tools, local processing, extra themes, quick actions and download-management improvements.
 
-* Qt 6 ([LGPL](http://doc.qt.io/qt-6/lgpl.html)) and Qt 5.15 ([LGPL](http://doc.qt.io/qt-5/lgpl.html)) slightly patched
-* OpenSSL 3.2.1 ([Apache License 2.0](https://openssl-library.org/source/license/apache-license-2.0.txt))
-* WebRTC ([New BSD License](https://github.com/desktop-app/tg_owt/blob/master/LICENSE))
-* zlib ([zlib License](http://www.zlib.net/zlib_license.html))
-* LZMA SDK 9.20 ([public domain](http://www.7-zip.org/sdk.html))
-* liblzma ([public domain](http://tukaani.org/xz/))
-* Google Breakpad ([License](https://chromium.googlesource.com/breakpad/breakpad/+/master/LICENSE))
-* Google Crashpad ([Apache License 2.0](https://chromium.googlesource.com/crashpad/crashpad/+/master/LICENSE))
-* GYP ([BSD License](https://github.com/bnoordhuis/gyp/blob/master/LICENSE))
-* Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
-* OpenAL Soft ([LGPL](https://github.com/kcat/openal-soft/blob/master/COPYING))
-* Opus codec ([BSD License](http://www.opus-codec.org/license/))
-* FFmpeg ([LGPL](https://www.ffmpeg.org/legal.html))
-* Guideline Support Library ([MIT License](https://github.com/Microsoft/GSL/blob/master/LICENSE))
-* Range-v3 ([Boost License](https://github.com/ericniebler/range-v3/blob/master/LICENSE.txt))
-* Open Sans font ([Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0.html))
-* Vazirmatn font ([SIL Open Font License 1.1](https://github.com/rastikerdar/vazirmatn/blob/master/OFL.txt))
-* Emoji alpha codes ([MIT License](https://github.com/emojione/emojione/blob/master/extras/alpha-codes/LICENSE.md))
-* xxHash ([BSD License](https://github.com/Cyan4973/xxHash/blob/dev/LICENSE))
-* QR Code generator ([MIT License](https://github.com/nayuki/QR-Code-generator#license))
-* CMake ([New BSD License](https://github.com/Kitware/CMake/blob/master/Copyright.txt))
-* Hunspell ([LGPL](https://github.com/hunspell/hunspell/blob/master/COPYING.LESSER))
-* Ada ([Apache License 2.0](https://github.com/ada-url/ada/blob/main/LICENSE-APACHE))
+It does **not** pretend that a non-Premium Telegram account is Premium and does not bypass Telegram server-side entitlements such as server limits, Premium reactions, Premium upload limits or other account-level capabilities. Those are controlled by Telegram's servers, not merely by the desktop UI.
 
-## Build instructions
+The fork also avoids behavior that breaks Telegram API requirements for third-party clients, including intentionally suppressing read/online/typing status or interfering with required Telegram functionality.
 
-* [Windows (32-bit and 64-bit)][win]
-* [macOS][mac]
-* [GNU/Linux using Docker][linux]
+## Project URL
 
-[//]: # (LINKS)
-[telegram]: https://telegram.org
-[telegram_desktop]: https://desktop.telegram.org
-[telegram_api]: https://core.telegram.org
-[telegram_proto]: https://core.telegram.org/mtproto
-[license]: LICENSE
-[win]: docs/building-win.md
-[mac]: docs/building-mac.md
-[linux]: docs/building-linux.md
-[preview_image]: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/assets/preview.png "Preview of Telegram Desktop"
-[preview_image_url]: https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/docs/assets/preview.png
+Project page: **https://bonaqu.github.io/tdesktop-bonaqu/**
 
-## Thanks to
+Repository: **https://github.com/bonaqu/tdesktop-bonaqu**
 
-<a href="https://depot.dev">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg">
-    <img alt="Depot" src="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg" width="150">
-  </picture>
-</a>
+## WEB Proxy
 
-CI infrastructure sponsored by [Depot](https://depot.dev) — fast GitHub Actions runners.
+Current Telegram Desktop development sources contain the WEB Proxy connection type and the WebView-based MTProto carrier. The external WEB Proxy HTTPS connection is made through the platform WebView/browser carrier while Telegram's existing MTProxy protocol layer handles the opaque MTProto bytes.
 
+The feature remains experimental until the upstream P0/P1 test plan has been exercised against a compatible hosted relay.
+
+## Windows x64 build
+
+The fork contains `.github/workflows/bonaqu-win64.yml`, a focused Windows x64 Release workflow instead of Telegram's complete architecture/platform build matrix.
+
+The configure stage uses the repository secrets:
+
+```text
+TDESKTOP_API_ID    <- BONAQU_TDESKTOP_API_ID
+TDESKTOP_API_HASH  <- BONAQU_TDESKTOP_API_HASH
+```
+
+and also builds with:
+
+```text
+-D DESKTOP_APP_DISABLE_AUTOUPDATE=ON
+-D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+```
+
+### Required GitHub Actions Secrets
+
+The repository must contain these two Actions secrets before the workflow can build:
+
+- `BONAQU_TDESKTOP_API_ID` — numeric App api_id from `my.telegram.org/apps`;
+- `BONAQU_TDESKTOP_API_HASH` — App api_hash from `my.telegram.org/apps`.
+
+Do not commit either value into source files. The workflow does not intentionally print them. Telegram Desktop does compile API credentials into the client binary, so credentials contained in a distributed executable must be considered recoverable by somebody inspecting that binary.
+
+### Artifact contents
+
+The build artifact contains:
+
+- `BonaquClient.exe`;
+- `Start-Bonaqu-Client.cmd` — normal isolated launch;
+- `Start-Bonaqu-Client-Debug.cmd` — isolated launch with debug logging;
+- `Bonaqu-Profiles.cmd` — interactive multi-profile launcher;
+- `Bonaqu-Profile-Manager.ps1` — profile manager implementation;
+- `BUILD-INFO.txt` — source commit and build mode;
+- `SHA256SUMS.txt` — SHA-256 of the executable.
+
+The normal launcher starts the client with `-workdir <artifact>\BonaquProfile`, keeping its profile separate from normal Telegram Desktop `tdata`. The Profile Manager uses a separate `Profiles\<name>` directory for every profile and starts them with `-many` plus an explicit `-workdir`.
+
+## Testing
+
+Start with [`docs/bonaqu-testing.md`](docs/bonaqu-testing.md). It contains the Bonaqu smoke-test procedure, isolated-profile rules, diagnostic collection and a summary of the wider upstream WEB Proxy test requirements.
+
+The upstream source of truth for WEB Proxy testing is [`docs/web-proxy-test-plan.md`](docs/web-proxy-test-plan.md). A successful compile is not evidence that every WEB Proxy runtime case is correct.
+
+## Upstream maintenance
+
+Bonaqu-specific changes should remain isolated and reviewable. Upstream security fixes, crash fixes and WEB Proxy fixes take priority over local customization.
+
+`.github/workflows/bonaqu-upstream-check.yml` checks Telegram Desktop's `dev` head weekly and reports when it differs from `.bonaqu/upstream-base.txt`. Upstream changes should be reviewed and rebuilt deliberately rather than blindly auto-merged into a network-transport experiment.
+
+The pre-7.1.1 Bonaqu `dev` state is preserved in the `backup-dev-before-7.1.1` branch.
+
+## References
+
+- Telegram Desktop upstream: https://github.com/telegramdesktop/tdesktop
+- WEB Proxy server PoC: https://github.com/telegramdesktop/tproxy-server
+- Telegram API documentation: https://core.telegram.org/api
+- Telegram API Terms of Service: https://core.telegram.org/api/terms
+- Telegram Desktop API credential notes: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/api_credentials.md
+- Windows build instructions: https://github.com/telegramdesktop/tdesktop/blob/dev/docs/building-win.md
+- WEB Proxy client test plan: `docs/web-proxy-test-plan.md`
+
+## License and attribution
+
+Bonaqu Client is derived from Telegram Desktop. The upstream source is published under GPLv3 with the OpenSSL exception. See [LICENSE](LICENSE) and [LEGAL](LEGAL) for the applicable license and attribution information.
+
+Upstream copyright and third-party notices remain the property of their respective owners.

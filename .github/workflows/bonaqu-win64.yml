@@ -1,0 +1,503 @@
+name: Bonaqu Client Windows x64
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - dev
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.bonaqu/**'
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '!docs/building-win*.md'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.github/**'
+      - '!.github/workflows/bonaqu-win64.yml'
+      - '.bonaqu/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bonaqu-win64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: Windows x64 build
+    runs-on: windows-latest
+    timeout-minutes: 300
+
+    env:
+      TBUILD: ${{ github.workspace }}\TBuild
+      REPO_NAME: tdesktop-bonaqu
+      PREPARE_PATH: Telegram/build/prepare/prepare.py
+      LIBRARIES_PATH: ${{ github.workspace }}\TBuild\Libraries\win64
+      BONAQU_API_ID: ${{ secrets.BONAQU_TDESKTOP_API_ID }}
+      BONAQU_API_HASH: ${{ secrets.BONAQU_TDESKTOP_API_HASH }}
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Select Telegram API credential mode
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            Write-Host '[BONAQU] Pull-request compile uses Telegram Desktop TEST ONLY credentials.'
+            Write-Host '[BONAQU] Personal API Secrets are not required and no PR artifact will be published.'
+            exit 0
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:BONAQU_API_ID)) {
+            throw 'Missing GitHub Actions secret BONAQU_TDESKTOP_API_ID.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:BONAQU_API_HASH)) {
+            throw 'Missing GitHub Actions secret BONAQU_TDESKTOP_API_HASH.'
+          }
+          if ($env:BONAQU_API_ID -notmatch '^\d+$') {
+            throw 'BONAQU_TDESKTOP_API_ID must contain only digits.'
+          }
+          if ($env:BONAQU_API_HASH -notmatch '^[0-9a-fA-F]{32}$') {
+            throw 'BONAQU_TDESKTOP_API_HASH must be a 32-character hexadecimal API hash.'
+          }
+          Write-Host '[BONAQU] Personal Telegram API credentials are configured for a distributable build.'
+
+      - name: Prepare short TBuild path
+        run: |
+          if not exist "%USERPROFILE%\TBuild\Libraries" mkdir "%USERPROFILE%\TBuild\Libraries"
+          mklink /d "%GITHUB_WORKSPACE%\TBuild" "%USERPROFILE%\TBuild"
+
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      # TBuild intentionally lives behind the short USERPROFILE path used by upstream.
+      # Release dependency preparation is large enough that keeping Telegram's huge
+      # object tree on the same physical drive can exhaust it. Redirect only /out
+      # back to the mostly-empty Actions workspace drive so dependencies and client
+      # object files no longer compete for the same free space.
+      - name: Place client build output on workspace disk
+        shell: pwsh
+        run: |
+          $repoRoot = Join-Path $env:TBUILD $env:REPO_NAME
+          $outLink = Join-Path $repoRoot 'out'
+          $outTarget = Join-Path $env:GITHUB_WORKSPACE 'BonaquBuildOut'
+          if (Test-Path $outLink) {
+            throw "Unexpected pre-existing build output path: $outLink"
+          }
+          if (Test-Path $outTarget) {
+            Remove-Item -Recurse -Force $outTarget
+          }
+          New-Item -ItemType Directory -Force -Path $outTarget | Out-Null
+          & cmd.exe /d /s /c "mklink /D `"$outLink`" `"$outTarget`""
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLink)) {
+            throw "Could not redirect $outLink to $outTarget"
+          }
+          Write-Host "[BONAQU] Client output redirected: $outLink -> $outTarget"
+
+      - name: Validate WEB Proxy and Bonaqu source contract
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $required = @(
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_frame.cpp',
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_transport.cpp',
+            'Telegram\SourceFiles\mtproto\web_proxy\web_proxy_webview.cpp',
+            'Telegram\SourceFiles\mtproto\details\mtproto_web_proxy_socket.cpp',
+            'docs\web-proxy-plan.md',
+            'docs\web-proxy-test-plan.md'
+          )
+          foreach ($relative in $required) {
+            $path = Join-Path $root $relative
+            if (-not (Test-Path $path)) {
+              throw "Required WEB Proxy source is missing: $relative"
+            }
+          }
+          $proxyData = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\mtproto\mtproto_proxy_data.cpp')
+          if ($proxyData -notmatch 'Type::Web' -or $proxyData -notmatch 'NormalizeWebProxyHost') {
+            throw 'WEB Proxy data model/validation was not found in mtproto_proxy_data.cpp'
+          }
+          $version = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\core\version.h')
+          if ($version -notmatch 'AppName = "Bonaqu Client"') {
+            throw 'Bonaqu Client runtime branding is missing.'
+          }
+          if ($version -notmatch 'AppFile = "BonaquClient"') {
+            throw 'Bonaqu Client executable identity is missing.'
+          }
+
+      - name: Read SDK and build cache key
+        shell: bash
+        run: |
+          DOCPATH="$TBUILD/$REPO_NAME/docs/building-win.md"
+          SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/' | head -n1)"
+          if [ -z "$SDK" ]; then
+            echo "Could not determine required Windows SDK from docs/building-win.md" >&2
+            exit 1
+          fi
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+          {
+            sha256sum "$TBUILD/$REPO_NAME/$PREPARE_PATH"
+            printf '%s\n' "$SDK"
+          } > CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> "$GITHUB_ENV"
+          echo "Required SDK: $SDK"
+
+      # VS 2026 ships ATL for its current toolset, while Bonaqu intentionally
+      # selects v143 14.44 for Telegram Desktop compatibility. A cold Release
+      # dependency build needs matching ATL to build breakpad dump_syms.
+      - name: Ensure Visual Studio 14.44 ATL component
+        shell: pwsh
+        run: |
+          $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installer 'vswhere.exe'
+          $setup = Join-Path $installer 'setup.exe'
+          if (-not (Test-Path $vswhere) -or -not (Test-Path $setup)) {
+            throw "Visual Studio Installer is incomplete at $installer."
+          }
+
+          $toolsComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64'
+          $atlComponent = 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL'
+          $path = @(& $vswhere -latest -products '*' -requires $toolsComponent -property installationPath)[0]
+          if (-not $path) {
+            throw "No Visual Studio instance provides $toolsComponent."
+          }
+
+          $toolset = Get-ChildItem (Join-Path $path 'VC\Tools\MSVC') -Directory `
+            | Where-Object { $_.Name -like '14.44.*' } `
+            | Sort-Object Name -Descending `
+            | Select-Object -First 1
+          if (-not $toolset) {
+            throw 'The selected Visual Studio instance has no 14.44 toolset.'
+          }
+
+          $header = Join-Path $toolset.FullName 'atlmfc\include\atlbase.h'
+          if (Test-Path $header) {
+            Write-Host "[BONAQU] ATL is already installed for $($toolset.Name)."
+            exit 0
+          }
+
+          Write-Host "[BONAQU] Installing $atlComponent into $path"
+          $process = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            'modify',
+            '--installPath', "`"$path`"",
+            '--add', $atlComponent,
+            '--quiet', '--norestart', '--nocache'
+          )
+          if ($process.ExitCode -notin @(0, 3010)) {
+            throw "Visual Studio Installer exited with $($process.ExitCode)."
+          }
+          if (-not (Test-Path $header)) {
+            throw "$atlComponent completed without installing $header."
+          }
+          Write-Host "[BONAQU] Matching ATL installed: $header"
+
+      - name: Configure MSVC environment
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
+        with:
+          arch: x64
+          sdk: ${{ env.SDK }}
+          toolset: '14.44'
+
+      - name: Verify Visual Studio ATL component
+        shell: pwsh
+        run: |
+          $atlInclude = Join-Path $env:VCToolsInstallDir 'atlmfc\include'
+          $header = Join-Path $atlInclude 'atlbase.h'
+          $comHeader = Join-Path $atlInclude 'atlcomcli.h'
+          if (-not (Test-Path $header)) {
+            throw "The selected toolset has no ATL header at $header."
+          }
+          if (-not (Test-Path $comHeader)) {
+            throw "The selected toolset has no ATL COM header at $comHeader."
+          }
+          if (($env:INCLUDE -split ';') -notcontains $atlInclude) {
+            throw "The selected toolset did not add $atlInclude to INCLUDE."
+          }
+          Write-Host "[BONAQU] ATL verification passed: $atlInclude"
+
+      - name: Configure NuGet sources
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit /b 0
+
+      - name: Cache third-party sources
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
+          restore-keys: |
+            bonaqu-${{ runner.OS }}-${{ runner.arch }}-third-party-
+
+      - name: Cache prepared Release libraries
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.LIBRARIES_PATH }}\*
+            !${{ env.LIBRARIES_PATH }}\cache_keys
+            !${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
+            ${{ env.LIBRARIES_PATH }}\cache_keys\*
+            !${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
+          key: bonaqu-${{ runner.OS }}-x64-libs-v3-release-${{ env.CACHE_KEY }}
+          restore-keys: |
+            bonaqu-${{ runner.OS }}-x64-libs-v3-release-
+
+      - name: Cache Release Qt
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.LIBRARIES_PATH }}\[qQ]t[_-]*
+            ${{ env.LIBRARIES_PATH }}\cache_keys\[qQ]t[_-]*
+          key: bonaqu-${{ runner.OS }}-x64-qt-release-v2-${{ env.CACHE_KEY }}
+          restore-keys: |
+            bonaqu-${{ runner.OS }}-x64-qt-release-v2-
+
+      - name: Prepare Telegram Desktop Release dependencies
+        id: prepare_release_dependencies
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log'
+          Set-Location $root
+          Write-Host "[BONAQU] Release dependency preparation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full dependency output: $log"
+          & cmd.exe /d /s /c 'call Telegram\build\prepare\win.bat' 2>&1 |
+            Tee-Object -FilePath $log
+          $prepareExit = $LASTEXITCODE
+          if ($prepareExit -ne 0) {
+            Write-Host "[BONAQU] Release dependency preparation failed with exit code $prepareExit. Preserving $log"
+            exit $prepareExit
+          }
+          Write-Host "[BONAQU] Release dependency preparation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+
+      - name: Validate required Release dependencies
+        shell: pwsh
+        run: |
+          $required = @(
+            (Join-Path $env:LIBRARIES_PATH 'tg_angle\out\Release\tg_angle.lib'),
+            (Join-Path $env:LIBRARIES_PATH 'libavif\Release\avif.lib')
+          )
+          $missing = @($required | Where-Object { -not (Test-Path $_) })
+          if ($missing.Count -gt 0) {
+            Write-Host '[BONAQU] Required Release dependencies are missing:'
+            $missing | ForEach-Object { Write-Host "  - $_" }
+            throw 'Release dependency preparation is incomplete. Do not continue to the Telegram linker.'
+          }
+          Write-Host '[BONAQU] Release dependency guard passed:'
+          $required | ForEach-Object { Write-Host "  - $_" }
+
+      - name: Report disk space after dependencies
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "=== AFTER DEPENDENCY PREPARATION: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Set-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
+      - name: Free up dependency build files
+        shell: bash
+        run: |
+          echo "[BONAQU] Cleanup started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          find "$LIBRARIES_PATH" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
+          echo "[BONAQU] Cleanup completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Remove Debug-only dependency trees
+        shell: pwsh
+        run: |
+          $debugDirs = @(Get-ChildItem -LiteralPath $env:LIBRARIES_PATH -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Debug' } |
+            Sort-Object { $_.FullName.Length } -Descending)
+          $before = $debugDirs.Count
+          foreach ($dir in $debugDirs) {
+            if (Test-Path -LiteralPath $dir.FullName) {
+              Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host "[BONAQU] Removed $before Debug-only dependency directories."
+
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== AFTER DEPENDENCY CLEANUP: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
+      - name: Configure Bonaqu Client
+        run: |
+          cd /d "%TBUILD%\%REPO_NAME%\Telegram"
+          echo [BONAQU] CMake configure started: %DATE% %TIME%
+          set "BONAQU_API_ARGS=-D TDESKTOP_API_TEST=ON"
+          if not "%GITHUB_EVENT_NAME%"=="pull_request" set "BONAQU_API_ARGS=-D TDESKTOP_API_ID=%BONAQU_API_ID% -D TDESKTOP_API_HASH=%BONAQU_API_HASH%"
+          call configure.bat x64 ^
+            %BONAQU_API_ARGS% ^
+            -D CMAKE_CONFIGURATION_TYPES=Release ^
+            -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
+            -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON
+          if errorlevel 1 exit /b %errorlevel%
+          echo [BONAQU] CMake configure completed: %DATE% %TIME%
+
+      - name: Report disk space before client build
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
+          "`n=== BEFORE CLIENT BUILD: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
+      - name: Build Bonaqu Client
+        id: build_client
+        shell: pwsh
+        run: |
+          $source = Join-Path (Join-Path $env:TBUILD $env:REPO_NAME) 'Telegram'
+          $log = Join-Path $env:RUNNER_TEMP 'bonaqu-build.log'
+          Set-Location $source
+          Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+          Write-Host "[BONAQU] Full compiler output: $log"
+          & cmake --build '..\out' --config Release --target Telegram --parallel 2 2>&1 |
+            Tee-Object -FilePath $log
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            Write-Host "[BONAQU] Compilation failed with exit code $buildExit. Preserving $log"
+            exit $buildExit
+          }
+          Write-Host "[BONAQU] Compilation completed: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+
+      - name: Show failure diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $logs = @(
+            @{ Name = 'DEPENDENCY PREPARE'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-dependency-prepare.log') },
+            @{ Name = 'CLIENT BUILD'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-build.log') },
+            @{ Name = 'DISK REPORT'; Path = (Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt') }
+          )
+          foreach ($entry in $logs) {
+            if (Test-Path $entry.Path) {
+              Write-Host "========== BONAQU $($entry.Name) LOG: LAST 300 LINES =========="
+              Get-Content -Path $entry.Path -Tail 300
+              Write-Host "========== END BONAQU $($entry.Name) LOG TAIL =========="
+            } else {
+              Write-Warning "$($entry.Name) log was not created at $($entry.Path)."
+            }
+          }
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Bonaqu-Client-failure-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}\bonaqu-dependency-prepare.log
+            ${{ runner.temp }}\bonaqu-build.log
+            ${{ runner.temp }}\bonaqu-disk-report.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Report pull-request compile result
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          @'
+          ## Bonaqu Client PR compile
+
+          Windows x64 Release compilation completed with Telegram Desktop TEST ONLY API credentials.
+
+          - Personal Bonaqu API Secrets were not required by this PR build.
+          - No executable artifact is published from PR builds.
+          - A distributable build still uses the personal API credentials on `dev` / manual workflow runs.
+          '@ | Add-Content -Encoding UTF8 $env:GITHUB_STEP_SUMMARY
+
+      - name: Package isolated Bonaqu Client build
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:TBUILD $env:REPO_NAME
+          $out = Join-Path $root 'out\Release'
+          $package = Join-Path $env:GITHUB_WORKSPACE 'BonaquClient-Windows-x64'
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          $telegram = Join-Path $out 'Telegram.exe'
+          if (-not (Test-Path $telegram)) {
+            throw "Telegram.exe was not produced at $telegram"
+          }
+
+          $exe = Join-Path $package 'BonaquClient.exe'
+          Copy-Item $telegram $exe
+
+          @'
+          @echo off
+          setlocal
+          set "ROOT=%~dp0"
+          if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
+          start "Bonaqu Client" "%ROOT%BonaquClient.exe" -workdir "%ROOT%BonaquProfile" -noupdate
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Client.cmd')
+
+          @'
+          @echo off
+          setlocal
+          set "ROOT=%~dp0"
+          if not exist "%ROOT%BonaquProfile" mkdir "%ROOT%BonaquProfile"
+          start "Bonaqu Client Debug" "%ROOT%BonaquClient.exe" -workdir "%ROOT%BonaquProfile" -noupdate -debug
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Start-Bonaqu-Client-Debug.cmd')
+
+          $profileManagerSource = Join-Path $root '.bonaqu\tools\Bonaqu-Profile-Manager.ps1'
+          if (-not (Test-Path $profileManagerSource)) {
+            throw "Bonaqu Profile Manager was not found at $profileManagerSource"
+          }
+          Copy-Item $profileManagerSource (Join-Path $package 'Bonaqu-Profile-Manager.ps1')
+
+          @'
+          @echo off
+          setlocal
+          powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Bonaqu-Profile-Manager.ps1"
+          '@ | Set-Content -Encoding ASCII (Join-Path $package 'Bonaqu-Profiles.cmd')
+
+          $sha256 = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+          @"
+          Bonaqu Client experimental Windows x64 build
+          Source commit: $env:GITHUB_SHA
+          Upstream base: Telegram Desktop 7.1.1
+          API application title: BonaquDesktop26
+          API application short name: bonaqu26
+          Telegram API mode: personal api_id/api_hash from GitHub Actions Secrets
+          Build mode: Release
+          Auto-update: disabled
+          Crash reporting: disabled
+          Executable SHA-256: $sha256
+
+          IMPORTANT:
+          Start the portable build with Start-Bonaqu-Client.cmd. It forces the isolated
+          BonaquProfile working directory next to the executable, so this fork never
+          reuses the normal Telegram Desktop tdata profile.
+
+          Bonaqu-Profiles.cmd opens the Bonaqu Profile Manager. It can create and launch
+          multiple independent local profiles with -many and separate -workdir folders.
+
+          Start-Bonaqu-Client-Debug.cmd enables Telegram debug logging for diagnosis.
+          Never publish debug logs before checking them for private information.
+
+          The api_id and api_hash are not committed to this repository and this workflow
+          does not intentionally print them. Telegram Desktop compiles API credentials
+          into the client binary, so anyone who receives the executable should be assumed
+          capable of recovering those credentials by inspecting the binary.
+          "@ | Set-Content -Encoding UTF8 (Join-Path $package 'BUILD-INFO.txt')
+
+          "$sha256  BonaquClient.exe" | Set-Content -Encoding ASCII (Join-Path $package 'SHA256SUMS.txt')
+
+      - name: Upload Bonaqu Client artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Bonaqu-Client-Windows-x64-${{ github.sha }}
+          path: BonaquClient-Windows-x64\
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "statuses": ["planned", "experimental", "active", "deprecated", "upstreamed", "removed"],
+  "features": [
+    {
+      "id": "application_identity",
+      "name": "Independent Bonaqu application identity",
+      "status": "active",
+      "kind": "local-additive",
+      "upstream_equivalent": null,
+      "supersession_rule": "Keep permanently while Bonaqu Client exists; never reuse Telegram Desktop installer/runtime identity."
+    },
+    {
+      "id": "isolated_profile",
+      "name": "Isolated default Bonaqu profile",
+      "status": "active",
+      "kind": "local-additive",
+      "upstream_equivalent": "Telegram Desktop -workdir support",
+      "supersession_rule": "Keep the Bonaqu default isolation layer even if upstream expands profile support. Rebase onto upstream storage APIs when available."
+    },
+    {
+      "id": "profile_manager",
+      "name": "Bonaqu multi-profile manager",
+      "status": "active",
+      "kind": "local-additive",
+      "upstream_equivalent": null,
+      "supersession_rule": "If Telegram Desktop ships first-class multi-profile working directories, migrate Bonaqu profiles to the upstream mechanism and retain only Bonaqu-specific convenience UI."
+    },
+    {
+      "id": "web_proxy",
+      "name": "WEB Proxy transport testing and integration",
+      "status": "experimental",
+      "kind": "upstream-derived",
+      "upstream_equivalent": "Telegram Desktop WEB Proxy development implementation",
+      "supersession_rule": "Follow upstream implementation. Remove Bonaqu-only compatibility glue when WEB Proxy becomes stable upstream, retaining diagnostics if still useful."
+    },
+    {
+      "id": "control_center",
+      "name": "Bonaqu Control Center",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": null,
+      "supersession_rule": "Keep as the home for Bonaqu-only settings; remove individual rows when upstream fully replaces their behaviour."
+    },
+    {
+      "id": "proxy_diagnostics",
+      "name": "Connection and WEB Proxy diagnostics",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": "Connection settings and debug logs",
+      "supersession_rule": "Prefer upstream diagnostic APIs if added; retain a compact Bonaqu summary/export view."
+    },
+    {
+      "id": "download_tools",
+      "name": "Enhanced download tools",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": "Telegram Desktop Downloads section",
+      "supersession_rule": "Extend the upstream Downloads section rather than fork it. Drop duplicate actions when upstream reaches parity."
+    },
+    {
+      "id": "shortcut_tools",
+      "name": "Additional power-user shortcuts",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": "Telegram Desktop keyboard shortcuts",
+      "supersession_rule": "Use upstream shortcut actions when they appear; keep only Bonaqu-exclusive bindings and conflict detection."
+    },
+    {
+      "id": "visual_identity",
+      "name": "Bonaqu visual identity, themes and accents",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": "Telegram themes and custom app icons",
+      "supersession_rule": "Build on upstream theming APIs. Avoid maintaining a parallel renderer."
+    },
+    {
+      "id": "local_voice_transcription",
+      "name": "Optional local voice transcription",
+      "status": "planned",
+      "kind": "local-additive",
+      "upstream_equivalent": "Telegram server-side voice transcription",
+      "supersession_rule": "Keep only when it offers a useful offline/privacy/local alternative. Never spoof Premium entitlement or server transcription state."
+    }
+  ]
+}
