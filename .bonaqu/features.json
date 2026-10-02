@@ -61,7 +61,7 @@
     {
       "id": "shortcut_tools",
       "name": "Additional power-user shortcuts",
-      "status": "planned",
+      "status": "experimental",
       "kind": "local-additive",
       "upstream_equivalent": "Telegram Desktop keyboard shortcuts",
       "supersession_rule": "Use upstream shortcut actions when they appear; keep only Bonaqu-exclusive bindings and conflict detection."

@@ -26,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/channel_statistics/earn/info_channel_earn_list.h"
 #include "info/peer_gifts/info_peer_gifts_widget.h"
 #include "info/stories/info_stories_widget.h"
+#include "info/downloads/info_downloads_widget.h"
 #include "info/info_memento.h"
 #include "info/info_controller.h"
 #include "inline_bots/bot_attach_web_view.h"
@@ -2007,6 +2008,11 @@ void SessionController::setupShortcuts() {
 				return true;
 			});
 		}
+
+		request->check(C::BonaquShowDownloads) && request->handle([=] {
+			showSection(Info::Downloads::Make(session().user()));
+			return true;
+		});
 
 		if (!session().supportMode()) {
 			return;
