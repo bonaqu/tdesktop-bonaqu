@@ -2266,6 +2266,7 @@ bool Element::computeIsAttachToPrevious(not_null<Element*> previous) {
 		const auto item = view->data();
 		return !item->isService()
 			&& !item->isEmpty()
+			&& !item->isSponsored()
 			&& !item->isPostHidingAuthor()
 			&& !item->isGuestChatBotMessage()
 			&& (!item->history()->peer->isMegagroup()
@@ -2494,8 +2495,10 @@ void Element::recountThreadBarInBlocks() {
 	if (barThread && !Has<ForumThreadBar>()) {
 		AddComponents(ForumThreadBar::Bit());
 		Get<ForumThreadBar>()->init(parentChat, barThread);
+		setPendingResize();
 	} else if (!barThread && Has<ForumThreadBar>()) {
 		RemoveComponents(ForumThreadBar::Bit());
+		setPendingResize();
 	}
 }
 

@@ -7,6 +7,7 @@
 // Generated from the TEXTINCLUDE 2 resource.
 //
 #if defined(__MINGW64__) || defined(__MINGW32__)
+	// MinGW-w64, MinGW
 	#if defined(__has_include) && __has_include(<winres.h>)
 		#include <winres.h>
 	#else
@@ -14,6 +15,7 @@
 		#include <winresrc.h>
 	#endif
 #else
+	// MSVC, Windows SDK
 	#include <winres.h>
 #endif
 
@@ -28,11 +30,13 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #pragma code_page(1252)
 
 /////////////////////////////////////////////////////////////////////////////
+//
 // Version
+//
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 7,1,1,0
- PRODUCTVERSION 7,1,1,0
+ FILEVERSION 7,2,8,0
+ PRODUCTVERSION 7,2,8,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -49,10 +53,10 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "bonaqu"
             VALUE "FileDescription", "Bonaqu Client Updater"
-            VALUE "FileVersion", "7.1.1.0"
+            VALUE "FileVersion", "7.2.8.0"
             VALUE "LegalCopyright", "Derived from Telegram Desktop (C) 2014-2026"
             VALUE "ProductName", "Bonaqu Client"
-            VALUE "ProductVersion", "7.1.1.0"
+            VALUE "ProductVersion", "7.2.8.0"
         END
     END
     BLOCK "VarFileInfo"
