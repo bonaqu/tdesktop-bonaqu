@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - '.bonaqu/tools/Build-Bonaqu-Whisper.ps1'
+      - '.bonaqu/tools/Install-Bonaqu-WhisperModel.ps1'
+      - '.bonaqu/local-transcription-models.json'
       - '.github/workflows/bonaqu-transcription-engine.yml'
       - 'docs/local-transcription.md'
 
@@ -25,21 +27,133 @@ jobs:
       - name: Checkout Bonaqu Client
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Parse PowerShell build script
+      - name: Parse PowerShell scripts
         shell: pwsh
         run: |
-          $path = '.bonaqu\tools\Build-Bonaqu-Whisper.ps1'
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path $path),
-            [ref]$tokens,
-            [ref]$errors)
-          if ($errors.Count -gt 0) {
-            $errors | ForEach-Object { Write-Error $_.Message }
-            throw 'Build-Bonaqu-Whisper.ps1 contains PowerShell syntax errors.'
+          $paths = @(
+            '.bonaqu\tools\Build-Bonaqu-Whisper.ps1',
+            '.bonaqu\tools\Install-Bonaqu-WhisperModel.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "$path contains PowerShell syntax errors."
+            }
+            Write-Host "[BONAQU] Parsed $path successfully."
           }
-          Write-Host '[BONAQU] PowerShell build script parsed successfully.'
+
+      - name: Validate pinned model manifest
+        shell: pwsh
+        run: |
+          $path = '.bonaqu\local-transcription-models.json'
+          $manifest = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+          if ($manifest.schema -ne 1) {
+            throw 'Unexpected model manifest schema.'
+          }
+          if ($manifest.source.repository -ne 'https://huggingface.co/ggerganov/whisper.cpp') {
+            throw 'Unexpected model source repository.'
+          }
+          if ($manifest.source.revision -ne '80da2d8bfee42b0e836fc3a9890373e5defc00a6') {
+            throw 'Model manifest source revision changed without review.'
+          }
+          if ($manifest.worker.engine_commit -ne '233fe1fc9b48a09e361d3594520838ca266537fe') {
+            throw 'Model manifest engine pin does not match the worker pin.'
+          }
+
+          $expected = @{
+            base = @{
+              filename = 'ggml-base.bin'
+              bytes = 147951465
+              sha256 = '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'
+            }
+            small = @{
+              filename = 'ggml-small.bin'
+              bytes = 487601967
+              sha256 = '1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b'
+            }
+          }
+          $seen = @{}
+
+          foreach ($entry in $manifest.models) {
+            $id = [string]$entry.id
+            if (-not $expected.ContainsKey($id)) {
+              throw "Unexpected model id '$id'."
+            }
+            if ($seen.ContainsKey($id)) {
+              throw "Duplicate model id '$id'."
+            }
+            $seen[$id] = $true
+
+            $wanted = $expected[$id]
+            $actualFilename = [string]$entry.filename
+            $actualBytes = [int64]$entry.bytes
+            $actualSha256 = [string]$entry.sha256
+            if ($actualFilename -ne [string]$wanted.filename -or
+                $actualBytes -ne [int64]$wanted.bytes -or
+                $actualSha256 -ne [string]$wanted.sha256) {
+              throw "Pinned metadata mismatch for model '$id'."
+            }
+
+            $expectedUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/$($manifest.source.revision)/$actualFilename"
+            if ([string]$entry.url -ne $expectedUrl) {
+              throw "Model '$id' URL does not exactly match its reviewed pinned file."
+            }
+          }
+
+          if ($manifest.models.Count -ne $expected.Count) {
+            throw 'Model manifest entry count changed unexpectedly.'
+          }
+          foreach ($expectedId in $expected.Keys) {
+            if (-not $seen.ContainsKey([string]$expectedId)) {
+              throw "Expected model '$expectedId' is missing from the manifest."
+            }
+          }
+
+          .\.bonaqu\tools\Install-Bonaqu-WhisperModel.ps1 -List
+
+      - name: Validate model installer path guards
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'bonaqu-model-path-guards'
+          if (Test-Path -LiteralPath $root) {
+            Remove-Item -LiteralPath $root -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $root | Out-Null
+
+          try {
+            $destination = Join-Path $root 'ggml-base.bin'
+            New-Item -ItemType Directory -Path $destination | Out-Null
+            $output = @(
+              & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -NonInteractive -File .\.bonaqu\tools\Install-Bonaqu-WhisperModel.ps1 -Model base -DestinationDirectory $root -Remove 2>&1
+            )
+            if ($LASTEXITCODE -eq 0 -or (($output | Out-String) -notmatch 'not a regular file')) {
+              throw "Directory collision at the final model path was not rejected. Output: $($output | Out-String)"
+            }
+            Write-Host '[PASS] Final model path rejects directory collisions.'
+            Remove-Item -LiteralPath $destination -Recurse -Force
+
+            $partial = Join-Path $root 'ggml-base.bin.part'
+            New-Item -ItemType Directory -Path $partial | Out-Null
+            $output = @(
+              & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -NonInteractive -File .\.bonaqu\tools\Install-Bonaqu-WhisperModel.ps1 -Model base -DestinationDirectory $root 2>&1
+            )
+            if ($LASTEXITCODE -eq 0 -or (($output | Out-String) -notmatch 'Temporary model path exists but is not a regular file')) {
+              throw "Directory collision at the temporary model path was not rejected. Output: $($output | Out-String)"
+            }
+            Write-Host '[PASS] Temporary model path rejects directory collisions.'
+          } finally {
+            if (Test-Path -LiteralPath $root) {
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+          }
+          Write-Host '[BONAQU] Model installer path guards passed.'
+          exit 0
 
       - name: Configure MSVC environment
         uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
