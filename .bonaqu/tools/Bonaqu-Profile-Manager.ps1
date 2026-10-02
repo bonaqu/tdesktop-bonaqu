@@ -25,6 +25,9 @@ if (-not (Test-Path -LiteralPath $profiles)) {
 
 $profiles = [System.IO.Path]::GetFullPath($profiles)
 $profilesItem = Get-Item -LiteralPath $profiles -Force
+if (-not $profilesItem.PSIsContainer) {
+    throw "The Bonaqu Profiles root exists but is not a directory: $profiles"
+}
 if (($profilesItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw 'The Bonaqu Profiles root must not be a symbolic link or junction.'
 }
@@ -35,7 +38,7 @@ if ($OpenProfilesFolder) {
 }
 
 $existing = @(
-    Get-ChildItem -Path $profiles -Directory -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $profiles -Directory -ErrorAction SilentlyContinue |
         Sort-Object Name |
         Select-Object -ExpandProperty Name
 )
@@ -67,16 +70,7 @@ $ProfileName = $ProfileName.Trim()
 if (-not $ProfileName) {
     throw 'Profile name cannot be empty.'
 }
-if ($ProfileName -notmatch '^[A-Za-z0-9._-]{1,48}
-Write-Host "Starting Bonaqu Client profile '$ProfileName'..."
-$arguments = @(
-    '-many',
-    '-workdir',
-    ('"{0}"' -f $profilePath),
-    '-noupdate'
-)
-Start-Process -FilePath $client -WorkingDirectory $root -ArgumentList $arguments
-) {
+if ($ProfileName -notmatch '^[A-Za-z0-9._-]{1,48}$') {
     throw 'Use only English letters, digits, dot, underscore or hyphen (max 48 characters).'
 }
 if ($ProfileName -eq '.' -or $ProfileName -eq '..') {
@@ -84,16 +78,7 @@ if ($ProfileName -eq '.' -or $ProfileName -eq '..') {
 }
 
 $deviceStem = ($ProfileName -split '\.', 2)[0]
-if ($deviceStem -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])
-Write-Host "Starting Bonaqu Client profile '$ProfileName'..."
-$arguments = @(
-    '-many',
-    '-workdir',
-    ('"{0}"' -f $profilePath),
-    '-noupdate'
-)
-Start-Process -FilePath $client -WorkingDirectory $root -ArgumentList $arguments
-) {
+if ($deviceStem -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
     throw "Windows reserved device name '$deviceStem' cannot be used as a Bonaqu profile."
 }
 
@@ -106,7 +91,7 @@ if (-not [string]::Equals(
     throw 'Resolved profile path escaped the Bonaqu Profiles root.'
 }
 
-if (-not (Test-Path $client -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath $client -PathType Leaf)) {
     throw "BonaquClient.exe was not found next to the profile manager: $client"
 }
 
