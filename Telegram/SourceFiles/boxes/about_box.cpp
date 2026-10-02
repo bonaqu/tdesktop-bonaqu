@@ -105,14 +105,14 @@ QString BonaquSafeDiagnostics() {
 	const auto crashReports = u"enabled"_q;
 #endif
 
-	return u"Bonaqu Client safe diagnostics\n"
+	return (u"Bonaqu Client safe diagnostics\n"
 		u"Version: %1\n"
 		u"Architecture: %2\n"
 		u"Profile mode: %3\n"
 		u"Proxy: %4\n"
 		u"Auto-update: %5\n"
 		u"Crash reporting: %6\n"
-		u"Source: https://github.com/bonaqu/tdesktop-bonaqu"
+		u"Source: https://github.com/bonaqu/tdesktop-bonaqu"_q)
 		.arg(currentVersionText())
 		.arg(architecture)
 		.arg(profileMode)
