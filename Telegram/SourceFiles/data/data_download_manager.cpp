@@ -589,6 +589,55 @@ void DownloadManager::deleteFiles(const std::vector<GlobalMsgId> &ids) {
 	finishFilesDelete(std::move(descriptor));
 }
 
+bool DownloadManager::canClearLoadedList() const {
+	for (const auto &[session, data] : _sessions) {
+		if (data.resolveNeeded
+			|| data.resolveSentTotal
+			|| data.resolveSentRequests) {
+			return false;
+		}
+	}
+	for (const auto &[session, data] : _sessions) {
+		if (!data.downloaded.empty()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void DownloadManager::clearLoadedList() {
+	// loadedList() can start asynchronous message resolution. Mutating the
+	// downloaded vector while resolveRequestsFinished() still owns counters
+	// into that vector can invalidate its indexes. Check the counters for every
+	// tracked session instead of relying on the one-shot global resolve signal:
+	// a session can be tracked later, after that signal already became true.
+	for (const auto &[session, data] : _sessions) {
+		if (data.resolveNeeded
+			|| data.resolveSentTotal
+			|| data.resolveSentRequests) {
+			return;
+		}
+	}
+	for (auto &[session, data] : _sessions) {
+		if (data.downloaded.empty()) {
+			continue;
+		}
+		for (auto &id : base::take(data.downloaded)) {
+			const auto object = id.object.get();
+			const auto document = object ? object->document : nullptr;
+			if (document) {
+				_generatedDocuments.remove(document);
+			}
+			if (const auto item = object ? object->item.get() : nullptr) {
+				_loaded.remove(item);
+				_generated.remove(item);
+				_loadedRemoved.fire_copy(item);
+			}
+		}
+		writePostponed(session);
+	}
+}
+
 void DownloadManager::deleteAll() {
 	auto descriptor = DeleteFilesDescriptor();
 	for (auto &[session, data] : _sessions) {
