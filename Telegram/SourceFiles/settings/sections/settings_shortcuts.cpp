@@ -101,6 +101,7 @@ struct Labeled {
 		{ C::FolderPrevious, tr::lng_shortcuts_folder_previous() },
 		{ C::ShowArchive, tr::lng_shortcuts_archive() },
 		{ C::ShowContacts, tr::lng_shortcuts_contacts() },
+		{ C::BonaquShowDownloads, tr::lng_bonaqu_shortcuts_downloads() },
 		separator,
 		{ C::ReadChat, tr::lng_shortcuts_read_chat() },
 		{ C::ArchiveChat, tr::lng_shortcuts_archive_chat() },

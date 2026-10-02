@@ -751,6 +751,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_shortcuts_scheduled" = "Scheduled messages";
 "lng_shortcuts_archive" = "Archived chats";
 "lng_shortcuts_contacts" = "Contacts list";
+"lng_bonaqu_shortcuts_downloads" = "Bonaqu: Open Downloads";
 "lng_shortcuts_just_send" = "Just send";
 "lng_shortcuts_silent_send" = "Silent send";
 "lng_shortcuts_schedule" = "Schedule";
