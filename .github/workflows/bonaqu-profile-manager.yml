@@ -1,0 +1,50 @@
+name: Bonaqu Profile Manager Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.bonaqu/tools/Bonaqu-Profile-Manager.ps1'
+      - '.bonaqu/tests/Test-Bonaqu-Profile-Manager.ps1'
+      - '.github/workflows/bonaqu-profile-manager.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bonaqu-profile-manager-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  profile-manager:
+    name: Windows profile isolation checks
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Bonaqu Client
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Parse Profile Manager PowerShell
+        shell: pwsh
+        run: |
+          $paths = @(
+            '.bonaqu\tools\Bonaqu-Profile-Manager.ps1',
+            '.bonaqu\tests\Test-Bonaqu-Profile-Manager.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "$path contains PowerShell syntax errors."
+            }
+          }
+
+      - name: Run Profile Manager isolation contract
+        shell: pwsh
+        run: .\.bonaqu\tests\Test-Bonaqu-Profile-Manager.ps1
