@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
+#include "core/launcher.h"
 #include "core/update_channel.h"
 #include "core/update_checker.h"
 #include "core/version.h"
@@ -91,9 +92,9 @@ QString BonaquSafeDiagnostics() {
 		: Platform::IsWindows32Bit()
 		? u"x86"_q
 		: u"other"_q;
-	const auto profileMode = cWorkingDir().isEmpty()
-		? u"default"_q
-		: u"isolated/custom workdir"_q;
+	const auto profileMode = Core::Launcher::Instance().customWorkingDir()
+		? u"isolated/custom workdir"_q
+		: u"default"_q;
 #ifdef TDESKTOP_DISABLE_AUTOUPDATE
 	const auto autoUpdate = u"disabled"_q;
 #else
