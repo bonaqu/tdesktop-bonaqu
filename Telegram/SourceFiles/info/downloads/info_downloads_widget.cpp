@@ -115,6 +115,24 @@ void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 			nullptr);
 	}
 
+	if (manager.canClearLoadedList()) {
+		const auto clearCompleted = [=, &manager] {
+			const auto clearSure = [=, &manager](Fn<void()> close) {
+				Ui::PostponeCall(this, close);
+				manager.clearLoadedList();
+			};
+			window->show(Ui::MakeConfirmBox({
+				.text = u"Remove completed downloads from the list? Downloaded files will stay on disk."_q,
+				.confirmed = clearSure,
+				.confirmText = u"Clear list"_q,
+			}));
+		};
+		addAction(
+			u"Clear completed from list"_q,
+			clearCompleted,
+			nullptr);
+	}
+
 	const auto deleteAll = [=] {
 		auto &manager = Core::App().downloadManager();
 		const auto phrase = tr::lng_downloads_delete_sure_all(tr::now);

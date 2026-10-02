@@ -120,6 +120,8 @@ public:
 	void removeLoadingExternal(not_null<const HistoryItem*> item);
 
 	void clearIfFinished();
+	[[nodiscard]] bool canClearLoadedList() const;
+	void clearLoadedList();
 	void deleteFiles(const std::vector<GlobalMsgId> &ids);
 	void deleteAll();
 	[[nodiscard]] bool loadedHasNonCloudFile() const;
