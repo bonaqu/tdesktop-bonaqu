@@ -347,12 +347,22 @@ jobs:
           if errorlevel 1 exit /b %errorlevel%
           echo [BONAQU] CMake configure completed: %DATE% %TIME%
 
-      - name: Report disk space before client build
+      - name: Report disk and memory before client build
         shell: pwsh
         run: |
           $report = Join-Path $env:RUNNER_TEMP 'bonaqu-disk-report.txt'
           "`n=== BEFORE CLIENT BUILD: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K') ===" | Add-Content -Encoding UTF8 $report
           Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free -AutoSize | Out-String | Tee-Object -FilePath $report -Append | Write-Host
+
+          $os = Get-CimInstance Win32_OperatingSystem
+          $memory = [pscustomobject]@{
+            TotalPhysicalGiB = [math]::Round(($os.TotalVisibleMemorySize * 1KB) / 1GB, 2)
+            FreePhysicalGiB = [math]::Round(($os.FreePhysicalMemory * 1KB) / 1GB, 2)
+            TotalVirtualGiB = [math]::Round(($os.TotalVirtualMemorySize * 1KB) / 1GB, 2)
+            FreeVirtualGiB = [math]::Round(($os.FreeVirtualMemory * 1KB) / 1GB, 2)
+          }
+          "`n=== MEMORY BEFORE CLIENT BUILD ===" | Add-Content -Encoding UTF8 $report
+          $memory | Format-List | Out-String | Tee-Object -FilePath $report -Append | Write-Host
 
       - name: Build Bonaqu Client
         id: build_client
@@ -363,7 +373,18 @@ jobs:
           Set-Location $source
           Write-Host "[BONAQU] Compilation started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
           Write-Host "[BONAQU] Full compiler output: $log"
-          & cmake --build '..\out' --config Release --target Telegram --parallel 2 2>&1 |
+          # Telegram's generated emoji/resource translation units are large enough to
+          # hit MSVC C1060 on the standard hosted runner when one compiler process
+          # receives a large batch of sources. Keep one MSBuild project node, let
+          # MultiToolTask isolate translation units into separate cl.exe processes,
+          # and cap compiler concurrency at two to bound peak virtual-memory use.
+          & cmake --build '..\out' --config Release --target Telegram -- `
+            /m:1 `
+            /p:UseMultiToolTask=true `
+            /p:MultiProcMaxCount=2 `
+            /p:CL_MPCount=2 `
+            /p:EnforceProcessCountAcrossBuilds=true `
+            /nodeReuse:false 2>&1 |
             Tee-Object -FilePath $log
           $buildExit = $LASTEXITCODE
           if ($buildExit -ne 0) {
@@ -462,10 +483,18 @@ jobs:
           '@ | Set-Content -Encoding ASCII (Join-Path $package 'Bonaqu-Profiles.cmd')
 
           $sha256 = (Get-FileHash -Algorithm SHA256 $exe).Hash.ToLowerInvariant()
+
+          $versionHeader = Get-Content -Raw (Join-Path $root 'Telegram\SourceFiles\core\version.h')
+          $versionMatch = [regex]::Match($versionHeader, 'constexpr auto AppVersionStr = "([^"]+)";')
+          if (-not $versionMatch.Success) {
+            throw 'Could not read AppVersionStr from Telegram/SourceFiles/core/version.h.'
+          }
+          $upstreamVersion = $versionMatch.Groups[1].Value
+
           @"
           Bonaqu Client experimental Windows x64 build
           Source commit: $env:GITHUB_SHA
-          Upstream base: Telegram Desktop 7.1.1
+          Upstream base: Telegram Desktop $upstreamVersion
           API application title: BonaquDesktop26
           API application short name: bonaqu26
           Telegram API mode: personal api_id/api_hash from GitHub Actions Secrets
