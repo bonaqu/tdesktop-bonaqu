@@ -2,9 +2,10 @@ name: Bonaqu Client Windows x64
 
 on:
   workflow_dispatch:
+  # Compile every code PR, including feature PRs stacked on an upstream-sync
+  # branch. Pull-request builds use TEST ONLY API credentials and publish no
+  # executable, so this does not expose Bonaqu distribution secrets/artifacts.
   pull_request:
-    branches:
-      - dev
     paths-ignore:
       - 'docs/**'
       - '**.md'
