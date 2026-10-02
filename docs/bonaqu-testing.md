@@ -1,10 +1,10 @@
-# Bonaqu Desktop WEB Proxy test guide
+# Bonaqu Client WEB Proxy test guide
 
 This guide is for the experimental Windows x64 build produced by `.github/workflows/bonaqu-win64.yml`.
 
 ## Important limitations
 
-The current build uses Telegram Desktop's official **TEST ONLY** API credentials through `TDESKTOP_API_TEST=ON`. Telegram documents these credentials as heavily limited and unsuitable for deployment. Login may eventually return internal server errors. Replace test credentials with a dedicated `api_id` / `api_hash` before treating Bonaqu Desktop as a normal distributable client.
+Pull-request compile checks use Telegram Desktop's official **TEST ONLY** API credentials through `TDESKTOP_API_TEST=ON`; those checks do not publish an executable artifact. Distributable `dev` / manually dispatched builds require the repository's dedicated `BONAQU_TDESKTOP_API_ID` and `BONAQU_TDESKTOP_API_HASH` secrets. Do not redistribute a build made with Telegram's TEST ONLY credentials.
 
 WEB Proxy itself is new upstream code. Passing a build is not enough to declare the transport stable: the upstream `docs/web-proxy-test-plan.md` requires live relay P0/P1 testing, including reconnects, large transfers, concurrency and failure injection.
 
@@ -12,11 +12,11 @@ WEB Proxy itself is new upstream code. Passing a build is not enough to declare 
 
 1. Extract the complete GitHub Actions artifact to its own folder.
 2. Do **not** copy your normal Telegram Desktop `tdata` directory into it.
-3. Start `Start-Bonaqu-Desktop.cmd`, not the executable directly.
+3. Start `Start-Bonaqu-Client.cmd`, not the executable directly.
 4. The launcher uses `-workdir <artifact>\BonaquProfile`, giving the experimental build an isolated profile.
 5. Keep `BUILD-INFO.txt` and `SHA256SUMS.txt` with the build so the source commit and binary hash remain traceable.
 
-For diagnostics, use `Start-Bonaqu-Desktop-Debug.cmd`. Review logs for private information before sharing them.
+For diagnostics, use `Start-Bonaqu-Client-Debug.cmd`. Review logs for private information before sharing them.
 
 ## WEB Proxy configuration
 
@@ -46,7 +46,7 @@ Record the exact Bonaqu build commit and relay version, then verify:
 7. Send and receive a small image/file.
 8. Disable WEB and confirm the client returns to the normal connection policy.
 9. Re-enable the same WEB entry and confirm it reconnects.
-10. Restart Bonaqu Desktop through the launcher and confirm the isolated profile and saved WEB entry remain intact.
+10. Restart Bonaqu Client through the launcher and confirm the isolated profile and saved WEB entry remain intact.
 
 ## Extended test before calling it stable
 
