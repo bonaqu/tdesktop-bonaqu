@@ -102,6 +102,8 @@ struct Labeled {
 		{ C::ShowArchive, tr::lng_shortcuts_archive() },
 		{ C::ShowContacts, tr::lng_shortcuts_contacts() },
 		separator,
+		{ C::BonaquShowDownloads, rpl::single(u"Bonaqu: Open Downloads"_q) },
+		separator,
 		{ C::ReadChat, tr::lng_shortcuts_read_chat() },
 		{ C::ArchiveChat, tr::lng_shortcuts_archive_chat() },
 		{ C::ShowScheduled, tr::lng_shortcuts_scheduled() },

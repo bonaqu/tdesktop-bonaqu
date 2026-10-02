@@ -80,6 +80,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/options.h"
 #include "base/unixtime.h"
 #include "info/channel_statistics/earn/earn_icons.h"
+#include "info/downloads/info_downloads_widget.h"
 #include "ui/controls/userpic_button.h"
 #include "ui/text/text_utilities.h"
 #include "ui/text/format_values.h" // Ui::FormatPhone.
@@ -2007,6 +2008,11 @@ void SessionController::setupShortcuts() {
 				return true;
 			});
 		}
+
+		request->check(C::BonaquShowDownloads) && request->handle([=] {
+			showSection(Info::Downloads::Make(session().user()));
+			return true;
+		});
 
 		if (!session().supportMode()) {
 			return;

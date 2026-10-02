@@ -123,6 +123,7 @@ const auto CommandByName = base::flat_map<QString, Command>{
 
 	{ u"show_archive"_q                  , Command::ShowArchive },
 	{ u"show_contacts"_q                 , Command::ShowContacts },
+	{ u"bonaqu_show_downloads"_q         , Command::BonaquShowDownloads },
 
 	{ u"read_chat"_q                     , Command::ReadChat },
 
@@ -168,6 +169,7 @@ const base::flat_map<Command, QString> &CommandNames() {
 	Command::ShowScheduled,
 	Command::ArchiveChat,
 	Command::RecordRound,
+	Command::BonaquShowDownloads,
 };
 
 class Manager {
