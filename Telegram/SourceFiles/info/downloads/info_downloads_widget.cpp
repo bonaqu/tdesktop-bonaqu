@@ -109,8 +109,8 @@ void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 	if (manager.loadingInProgress()) {
 		addAction(
 			u"Stop active downloads"_q,
-			[&manager] {
-				manager.loadingStopWithConfirmation(nullptr);
+			[] {
+				Core::App().downloadManager().loadingStopWithConfirmation(nullptr);
 			},
 			nullptr);
 	}
