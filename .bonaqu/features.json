@@ -37,7 +37,7 @@
     {
       "id": "control_center",
       "name": "Bonaqu Control Center",
-      "status": "planned",
+      "status": "active",
       "kind": "local-additive",
       "upstream_equivalent": null,
       "supersession_rule": "Keep as the home for Bonaqu-only settings; remove individual rows when upstream fully replaces their behaviour."
@@ -45,7 +45,7 @@
     {
       "id": "proxy_diagnostics",
       "name": "Connection and WEB Proxy diagnostics",
-      "status": "planned",
+      "status": "active",
       "kind": "local-additive",
       "upstream_equivalent": "Connection settings and debug logs",
       "supersession_rule": "Prefer upstream diagnostic APIs if added; retain a compact Bonaqu summary/export view."
