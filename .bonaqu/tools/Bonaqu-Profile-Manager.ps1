@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (Split-Path -Leaf $root -eq 'tools') {
+if ((Split-Path -Leaf $root) -eq 'tools') {
     # When launched from the repository tree.
     $root = Resolve-Path (Join-Path $root '..\..')
 }
