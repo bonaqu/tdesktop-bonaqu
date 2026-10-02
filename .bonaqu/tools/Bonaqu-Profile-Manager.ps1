@@ -76,6 +76,9 @@ if ($ProfileName -notmatch '^[A-Za-z0-9._-]{1,48}$') {
 if ($ProfileName -eq '.' -or $ProfileName -eq '..') {
     throw 'Dot path segments are not valid Bonaqu profile names.'
 }
+if ($ProfileName.EndsWith('.')) {
+    throw 'Bonaqu profile names must not end with a dot on Windows.'
+}
 
 $deviceStem = ($ProfileName -split '\.', 2)[0]
 if ($deviceStem -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
