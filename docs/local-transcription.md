@@ -92,7 +92,21 @@ Each supported model entry should be pinned by:
 - expected byte size;
 - engine compatibility version.
 
-A download is not marked installed until its hash matches.
+The first reviewed manifest pins the Hugging Face model repository to commit
+`80da2d8bfee42b0e836fc3a9890373e5defc00a6` and contains:
+
+| Model | File | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| Base multilingual | `ggml-base.bin` | 147951465 | `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe` |
+| Small multilingual | `ggml-small.bin` | 487601967 | `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` |
+
+`.bonaqu/tools/Install-Bonaqu-WhisperModel.ps1` reads only this manifest,
+downloads to a temporary `.part` file, verifies both byte size and SHA-256,
+and only then atomically moves the file into the model directory. Existing
+invalid files are not overwritten unless `-Force` is explicit. `-Remove`
+deletes only the exact manifest filename for the selected model.
+
+A download is not marked installed until both its byte size and SHA-256 match.
 
 ## Backend strategy
 
